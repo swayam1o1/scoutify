@@ -1,0 +1,26 @@
+- [x] Create backend directory structure, initialize package.json, and install backend packages.
+- [x] Define Artisan and User mongoose models.
+- [x] Implement backend server.js and routes (auth, search, payments).
+- [x] Write scripts/import_data.js and import the preprocessed CSV entries.
+- [x] Initialize the React frontend with Vite.
+- [x] Write index.css (design system) and build responsive frontend components (auth, payments, search UI, dashboards).
+- [x] Connect frontend to backend, test Razorpay payment simulator, login flows, search paywall, and responsive styling.
+- [x] Remove temporary files and final verification.
+- [x] Install @google/generative-ai package in the backend.
+- [x] Add GEMINI_API_KEY placeholder in backend .env.
+- [x] Create backend/routes/aiSearch.js endpoint (live & simulation modes).
+- [x] Register new route in backend/server.js.
+- [x] Implement AI Matchmaker tab, states, loaders, and reasoning cards in frontend App.jsx.
+- [x] Verify functionality.
+- [x] Implement POST /api/auth/demo-login endpoint in backend/routes/auth.js.
+- [x] Add YC Judge HUD and WhatsApp button style classes in frontend App.css.
+- [x] Integrate YC Judge HUD panel, WhatsApp button, and automatic demonstration workflows in frontend App.jsx.
+- [x] Modify backend/models/User.js to include the project boards schema structure.
+- [x] Create backend/routes/boards.js to handle boards CRUD and artisan bookmarking.
+- [x] Mount the boards router in backend/server.js.
+- [x] Add project board styling rules in frontend App.css.
+- [x] Integrate project boards dashboards, creation modals, and save-to-board dropdowns in frontend App.jsx.
+- [x] Add GET /api/boards/:boardId/recommendations endpoint in backend/routes/boards.js.
+- [x] Refactor frontend App.jsx to include dedicated 'boards' and 'board-details' view controllers.
+- [x] Implement search curation consoles and "Recommended for You" section with AI actions in App.jsx.
+- [x] Verify functionality.
