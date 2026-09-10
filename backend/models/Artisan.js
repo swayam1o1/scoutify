@@ -13,8 +13,8 @@ const ArtisanSchema = new mongoose.Schema({
   description: { type: String, default: '' },
   searchText: { type: String, default: '' },
   embedding: { type: [Number], default: undefined, validate: {
-    validator: value => !value || value.length === 768,
-    message: 'Embedding must contain 768 dimensions.'
+    validator: value => !value || value.length === 768 || value.length === 3072,
+    message: 'Embedding must contain 768 or 3072 dimensions.'
   } },
   userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }
 }, { timestamps: true });
