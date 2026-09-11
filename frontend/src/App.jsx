@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Search,
   MapPin,
@@ -42,6 +42,14 @@ const Instagram = ({ size = 24, className }) => (
 );
 
 
+const createSearchModeState = () => ({
+  results: [],
+  totalResults: 0,
+  paywallActive: false,
+  hasSearched: false,
+  searching: false
+});
+
 function App() {
   // Navigation / Views
   const [currentView, setCurrentView] = useState('search'); // 'search' | 'dashboard' | 'pricing'
@@ -51,17 +59,33 @@ function App() {
   // Search state
   const [service, setService] = useState('');
   const [location, setLocation] = useState('');
-  const [searchResults, setSearchResults] = useState([]);
-  const [totalResults, setTotalResults] = useState(0);
-  const [paywallActive, setPaywallActive] = useState(false);
-  const [hasSearched, setHasSearched] = useState(false);
-  const [searching, setSearching] = useState(false);
+  // Results are kept per mode so switching tabs keeps each mode's API output
+  const [searchByMode, setSearchByMode] = useState({
+    standard: createSearchModeState(),
+    ai: createSearchModeState()
+  });
+  // Latest request per mode wins, so a slow response can't overwrite a newer one
+  const searchRequestId = useRef({ standard: 0, ai: 0 });
 
   // AI Sourcing state
   const [searchMode, setSearchMode] = useState('standard'); // 'standard' | 'ai'
   const [aiQuery, setAiQuery] = useState('');
   const [aiLoaderStep, setAiLoaderStep] = useState(0);
-  const [isAiSearching, setIsAiSearching] = useState(false);
+
+  const { results: searchResults, totalResults, paywallActive, hasSearched, searching } = searchByMode[searchMode];
+  const isAiSearching = searchByMode.ai.searching;
+
+  const updateSearchMode = (mode, patch) => {
+    setSearchByMode(prev => ({ ...prev, [mode]: { ...prev[mode], ...patch } }));
+  };
+
+  const startSearchRequest = (mode) => {
+    searchRequestId.current[mode] += 1;
+    updateSearchMode(mode, { searching: true, hasSearched: true });
+    return searchRequestId.current[mode];
+  };
+
+  const isLatestSearchRequest = (mode, requestId) => searchRequestId.current[mode] === requestId;
 
   // Project Boards state
   const [boards, setBoards] = useState([]);
@@ -213,15 +237,15 @@ function App() {
     setUser(null);
     localStorage.removeItem('scoutify_token');
     setCurrentView('search');
-    setSearchResults([]);
-    setHasSearched(false);
+    searchRequestId.current.standard += 1;
+    searchRequestId.current.ai += 1;
+    setSearchByMode({ standard: createSearchModeState(), ai: createSearchModeState() });
   };
 
   // Perform search
   const handleSearch = async (e) => {
     if (e) e.preventDefault();
-    setSearching(true);
-    setHasSearched(true);
+    const requestId = startSearchRequest('standard');
     try {
       const headers = token ? { 'Authorization': `Bearer ${token}` } : {};
       const queryParams = new URLSearchParams({
@@ -231,14 +255,19 @@ function App() {
 
       const res = await fetch(`${API_BASE}/search?${queryParams.toString()}`, { headers });
       const data = await res.json();
+      if (!isLatestSearchRequest('standard', requestId)) return;
 
-      setSearchResults(data.results || []);
-      setTotalResults(data.totalResults || 0);
-      setPaywallActive(data.paywallActive || false);
+      updateSearchMode('standard', {
+        results: data.results || [],
+        totalResults: data.totalResults || 0,
+        paywallActive: data.paywallActive || false
+      });
     } catch (err) {
       console.error(err);
     } finally {
-      setSearching(false);
+      if (isLatestSearchRequest('standard', requestId)) {
+        updateSearchMode('standard', { searching: false });
+      }
     }
   };
 
@@ -252,9 +281,7 @@ function App() {
       return;
     }
 
-    setSearching(true);
-    setIsAiSearching(true);
-    setHasSearched(true);
+    const requestId = startSearchRequest('ai');
     setAiLoaderStep(0);
 
     const steps = [
@@ -284,21 +311,25 @@ function App() {
 
       const data = await res.json();
       clearInterval(interval);
+      if (!isLatestSearchRequest('ai', requestId)) return;
 
       if (!res.ok) {
         alert(data.message || 'AI Matching failed.');
         return;
       }
 
-      setSearchResults(data.results || []);
-      setTotalResults(data.results?.length || 0);
-      setPaywallActive(false);
+      updateSearchMode('ai', {
+        results: data.results || [],
+        totalResults: data.results?.length || 0,
+        paywallActive: false
+      });
     } catch (err) {
       clearInterval(interval);
       console.error(err);
     } finally {
-      setSearching(false);
-      setIsAiSearching(false);
+      if (isLatestSearchRequest('ai', requestId)) {
+        updateSearchMode('ai', { searching: false });
+      }
     }
   };
 
@@ -329,20 +360,24 @@ function App() {
     setSearchMode('standard');
     setService('Architectural');
     setLocation('Delhi');
-    setSearching(true);
-    setHasSearched(true);
+    const requestId = startSearchRequest('standard');
     try {
       const headers = token ? { 'Authorization': `Bearer ${token}` } : {};
       const queryParams = new URLSearchParams({ service: 'Architectural', location: 'Delhi' });
       const res = await fetch(`${API_BASE}/search?${queryParams.toString()}`, { headers });
       const data = await res.json();
-      setSearchResults(data.results || []);
-      setTotalResults(data.totalResults || 0);
-      setPaywallActive(data.paywallActive || false);
+      if (!isLatestSearchRequest('standard', requestId)) return;
+      updateSearchMode('standard', {
+        results: data.results || [],
+        totalResults: data.totalResults || 0,
+        paywallActive: data.paywallActive || false
+      });
     } catch (err) {
       console.error(err);
     } finally {
-      setSearching(false);
+      if (isLatestSearchRequest('standard', requestId)) {
+        updateSearchMode('standard', { searching: false });
+      }
     }
   };
 
@@ -368,9 +403,7 @@ function App() {
 
     setSearchMode('ai');
     setAiQuery('I need a false ceiling specialist in Tirupati');
-    setSearching(true);
-    setIsAiSearching(true);
-    setHasSearched(true);
+    const requestId = startSearchRequest('ai');
     setAiLoaderStep(0);
 
     const steps = ["Analyzing requirements...", "Scanning database...", "Computing alignment...", "Ranking profiles..."];
@@ -391,22 +424,26 @@ function App() {
       });
       const data = await res.json();
       clearInterval(interval);
-      setSearchResults(data.results || []);
-      setTotalResults(data.results?.length || 0);
-      setPaywallActive(false);
+      if (!isLatestSearchRequest('ai', requestId)) return;
+      updateSearchMode('ai', {
+        results: data.results || [],
+        totalResults: data.results?.length || 0,
+        paywallActive: false
+      });
     } catch (err) {
       clearInterval(interval);
       console.error(err);
     } finally {
-      setSearching(false);
-      setIsAiSearching(false);
+      if (isLatestSearchRequest('ai', requestId)) {
+        updateSearchMode('ai', { searching: false });
+      }
     }
   };
 
   // Trigger search on component load or on plan changes
 
   useEffect(() => {
-    if (hasSearched && searchMode === 'standard') {
+    if (searchByMode.standard.hasSearched) {
       handleSearch();
     }
   }, [user?.subscriptionPlan]);
@@ -1191,7 +1228,7 @@ function App() {
                   type="button"
                   className={`btn ${searchMode === 'standard' ? 'btn-primary' : 'btn-secondary'}`}
                   style={{ padding: '8px 16px', fontSize: '14px' }}
-                  onClick={() => { setSearchMode('standard'); setHasSearched(false); setSearchResults([]); }}
+                  onClick={() => setSearchMode('standard')}
                 >
                   Standard Search
                 </button>
@@ -1199,7 +1236,7 @@ function App() {
                   type="button"
                   className={`btn ${searchMode === 'ai' ? 'btn-primary' : 'btn-secondary'}`}
                   style={{ padding: '8px 16px', fontSize: '14px', gap: '6px' }}
-                  onClick={() => { setSearchMode('ai'); setHasSearched(false); setSearchResults([]); }}
+                  onClick={() => setSearchMode('ai')}
                 >
                   <Sparkles size={14} /> AI Matchmaker
                 </button>
