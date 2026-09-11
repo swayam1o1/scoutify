@@ -129,6 +129,11 @@ function App() {
   const [verificationCode, setVerificationCode] = useState('');
   const [verifyingOtp, setVerifyingOtp] = useState(false);
   const [verifying2Fa, setVerifying2Fa] = useState(false);
+  const [totpQr, setTotpQr] = useState('');
+  const [totpManualKey, setTotpManualKey] = useState('');
+  const [totpSetupCode, setTotpSetupCode] = useState('');
+  const [totpDisableCode, setTotpDisableCode] = useState('');
+  const [totpBusy, setTotpBusy] = useState(false);
 
   // Client registration fields
   const [clientName, setClientName] = useState('');
@@ -736,7 +741,7 @@ function App() {
       if (data.requires2FA) {
         setVerificationEmail(data.email);
         setVerifying2Fa(true);
-        setAuthSuccess('2FA verification code sent/logged.');
+        setAuthSuccess('Open Google Authenticator and enter the current 6-digit code.');
         return;
       }
 
@@ -958,6 +963,14 @@ function App() {
             return setAuthError(data.message || 'Google authentication failed.');
           }
 
+          if (data.requires2FA) {
+            setVerificationEmail(data.email);
+            setVerifying2Fa(true);
+            setShowAuthModal(true);
+            setAuthSuccess('Open Google Authenticator and enter the current 6-digit code.');
+            return;
+          }
+
           setToken(data.token);
           setUser(data.user);
           setShowAuthModal(false);
@@ -1113,29 +1126,84 @@ function App() {
     }
   };
 
-  // Profile: Toggle 2FA settings for Client
-  const toggle2FA = async (enable) => {
+  const startTotpSetup = async () => {
+    setTotpBusy(true);
     try {
-      const res = await fetch(`${API_BASE}/auth/toggle-2fa`, {
+      const res = await fetch(`${API_BASE}/auth/2fa/setup`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.message || 'Could not start authenticator setup.');
+        return;
+      }
+      setTotpQr(data.qrDataUrl);
+      setTotpManualKey(data.manualKey);
+      setTotpSetupCode('');
+    } catch (err) {
+      console.error(err);
+      alert('Could not start authenticator setup.');
+    } finally {
+      setTotpBusy(false);
+    }
+  };
+
+  const confirmTotpEnable = async (e) => {
+    e.preventDefault();
+    setTotpBusy(true);
+    try {
+      const res = await fetch(`${API_BASE}/auth/2fa/enable`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
+          Authorization: `Bearer ${token}`
         },
-        body: JSON.stringify({ enabled: enable })
+        body: JSON.stringify({ code: totpSetupCode })
       });
       const data = await res.json();
-      if (res.ok) {
-        setUser(prev => ({
-          ...prev,
-          twoFactorEnabled: data.twoFactorEnabled
-        }));
-        alert(`2FA configuration successfully updated.`);
-      } else {
-        alert(data.message || 'Failed to toggle 2FA.');
+      if (!res.ok) {
+        alert(data.message || 'Could not enable authenticator.');
+        return;
       }
+      setUser(prev => ({ ...prev, twoFactorEnabled: true }));
+      setTotpQr('');
+      setTotpManualKey('');
+      setTotpSetupCode('');
+      alert('Google Authenticator is on. Next login will ask for the app code.');
     } catch (err) {
       console.error(err);
+      alert('Could not enable authenticator.');
+    } finally {
+      setTotpBusy(false);
+    }
+  };
+
+  const disableTotp = async (e) => {
+    e.preventDefault();
+    setTotpBusy(true);
+    try {
+      const res = await fetch(`${API_BASE}/auth/2fa/disable`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({ code: totpDisableCode })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.message || 'Could not disable authenticator.');
+        return;
+      }
+      setUser(prev => ({ ...prev, twoFactorEnabled: false }));
+      setTotpDisableCode('');
+      alert('Google Authenticator is off.');
+    } catch (err) {
+      console.error(err);
+      alert('Could not disable authenticator.');
+    } finally {
+      setTotpBusy(false);
     }
   };
 
@@ -1627,19 +1695,60 @@ function App() {
                     <strong style={{ textTransform: 'capitalize' }}>{user.role}</strong>
                   </div>
 
-                  {user.role === 'client' && (
+                  {(user.role === 'client' || user.role === 'artisan') && (
                     <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '14px', marginTop: '10px' }}>
-                      <h4 style={{ fontSize: '15px', marginBottom: '10px' }}>Security Settings (2FA)</h4>
+                      <h4 style={{ fontSize: '15px', marginBottom: '10px' }}>Google Authenticator (2FA)</h4>
                       <p style={{ fontSize: '13px', color: 'var(--color-text-secondary)', marginBottom: '12px' }}>
-                        Require verification code during email/password login.
+                        After password, login needs the 6-digit code from the Google Authenticator app on your phone. No SMS.
                       </p>
                       {user.twoFactorEnabled ? (
-                        <button className="btn btn-outline" onClick={() => toggle2FA(false)} style={{ width: '100%', fontSize: '13px', padding: '8px' }}>
-                          Disable Login 2FA
-                        </button>
+                        <form onSubmit={disableTotp}>
+                          <label className="form-label">Current app code to disable</label>
+                          <input
+                            type="text"
+                            className="form-control"
+                            inputMode="numeric"
+                            autoComplete="one-time-code"
+                            placeholder="6-digit code"
+                            value={totpDisableCode}
+                            onChange={e => setTotpDisableCode(e.target.value)}
+                            required
+                            style={{ marginBottom: '10px' }}
+                          />
+                          <button type="submit" className="btn btn-outline" disabled={totpBusy} style={{ width: '100%', fontSize: '13px', padding: '8px' }}>
+                            Disable Authenticator
+                          </button>
+                        </form>
+                      ) : totpQr ? (
+                        <form onSubmit={confirmTotpEnable}>
+                          <p style={{ fontSize: '13px', color: 'var(--color-text-secondary)', marginBottom: '10px' }}>
+                            1. Install Google Authenticator. 2. Scan this QR. 3. Enter the code the app shows.
+                          </p>
+                          <img src={totpQr} alt="Authenticator QR code" style={{ width: '180px', height: '180px', background: '#fff', borderRadius: '8px', display: 'block', margin: '0 auto 12px' }} />
+                          <p style={{ fontSize: '11px', color: 'var(--color-text-secondary)', wordBreak: 'break-all', marginBottom: '10px' }}>
+                            Or type this key in the app: {totpManualKey}
+                          </p>
+                          <input
+                            type="text"
+                            className="form-control"
+                            inputMode="numeric"
+                            autoComplete="one-time-code"
+                            placeholder="6-digit code from the app"
+                            value={totpSetupCode}
+                            onChange={e => setTotpSetupCode(e.target.value)}
+                            required
+                            style={{ marginBottom: '10px' }}
+                          />
+                          <button type="submit" className="btn btn-primary" disabled={totpBusy} style={{ width: '100%', fontSize: '13px', padding: '8px', color: '#000', marginBottom: '8px' }}>
+                            Confirm and enable
+                          </button>
+                          <button type="button" className="btn btn-outline" disabled={totpBusy} style={{ width: '100%', fontSize: '13px', padding: '8px' }} onClick={() => { setTotpQr(''); setTotpManualKey(''); setTotpSetupCode(''); }}>
+                            Cancel
+                          </button>
+                        </form>
                       ) : (
-                        <button className="btn btn-primary" onClick={() => toggle2FA(true)} style={{ width: '100%', fontSize: '13px', padding: '8px', color: '#000' }}>
-                          Enable Login 2FA
+                        <button type="button" className="btn btn-primary" disabled={totpBusy} onClick={startTotpSetup} style={{ width: '100%', fontSize: '13px', padding: '8px', color: '#000' }}>
+                          Set up Google Authenticator
                         </button>
                       )}
                     </div>
@@ -2316,7 +2425,7 @@ function App() {
                 {verifyingOtp ? 'Account Verification' : verifying2Fa ? 'Two-Factor Login' : authTab === 'login' ? 'Welcome Back' : 'Get Started'}
               </h2>
               <p style={{ color: 'var(--color-text-secondary)', fontSize: '14px' }}>
-                {verifyingOtp ? 'Enter verification code' : verifying2Fa ? 'Check OTP to sign in' : 'Unlock direct connections with verified artisans.'}
+                {verifyingOtp ? 'Enter verification code' : verifying2Fa ? 'Use Google Authenticator' : 'Unlock direct connections with verified artisans.'}
               </p>
             </div>
 
@@ -2364,11 +2473,13 @@ function App() {
             {verifying2Fa && (
               <form onSubmit={handleVerify2Fa}>
                 <div className="form-group">
-                  <label className="form-label">2FA Security Code</label>
+                  <label className="form-label">Google Authenticator code</label>
                   <input
                     type="text"
                     className="form-control"
-                    placeholder="Enter 2FA login OTP"
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    placeholder="Current 6-digit code"
                     value={verificationCode}
                     onChange={e => setVerificationCode(e.target.value)}
                     required
