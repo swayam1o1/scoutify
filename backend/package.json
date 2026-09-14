@@ -12,6 +12,7 @@
     "seed:users": "node scripts/seed_users.js"
   },
   "dependencies": {
+    "@aws-sdk/client-secrets-manager": "^3.1131.0",
     "@google/generative-ai": "^0.24.1",
     "bcryptjs": "^2.4.3",
     "cors": "^2.8.5",
