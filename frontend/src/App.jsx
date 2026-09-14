@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Search,
   MapPin,
@@ -42,6 +42,14 @@ const Instagram = ({ size = 24, className }) => (
 );
 
 
+const createSearchModeState = () => ({
+  results: [],
+  totalResults: 0,
+  paywallActive: false,
+  hasSearched: false,
+  searching: false
+});
+
 function App() {
   // Navigation / Views
   const [currentView, setCurrentView] = useState('search'); // 'search' | 'dashboard' | 'pricing'
@@ -51,17 +59,33 @@ function App() {
   // Search state
   const [service, setService] = useState('');
   const [location, setLocation] = useState('');
-  const [searchResults, setSearchResults] = useState([]);
-  const [totalResults, setTotalResults] = useState(0);
-  const [paywallActive, setPaywallActive] = useState(false);
-  const [hasSearched, setHasSearched] = useState(false);
-  const [searching, setSearching] = useState(false);
+  // Results are kept per mode so switching tabs keeps each mode's API output
+  const [searchByMode, setSearchByMode] = useState({
+    standard: createSearchModeState(),
+    ai: createSearchModeState()
+  });
+  // Latest request per mode wins, so a slow response can't overwrite a newer one
+  const searchRequestId = useRef({ standard: 0, ai: 0 });
 
   // AI Sourcing state
   const [searchMode, setSearchMode] = useState('standard'); // 'standard' | 'ai'
   const [aiQuery, setAiQuery] = useState('');
   const [aiLoaderStep, setAiLoaderStep] = useState(0);
-  const [isAiSearching, setIsAiSearching] = useState(false);
+
+  const { results: searchResults, totalResults, paywallActive, hasSearched, searching } = searchByMode[searchMode];
+  const isAiSearching = searchByMode.ai.searching;
+
+  const updateSearchMode = (mode, patch) => {
+    setSearchByMode(prev => ({ ...prev, [mode]: { ...prev[mode], ...patch } }));
+  };
+
+  const startSearchRequest = (mode) => {
+    searchRequestId.current[mode] += 1;
+    updateSearchMode(mode, { searching: true, hasSearched: true });
+    return searchRequestId.current[mode];
+  };
+
+  const isLatestSearchRequest = (mode, requestId) => searchRequestId.current[mode] === requestId;
 
   // Project Boards state
   const [boards, setBoards] = useState([]);
@@ -105,6 +129,11 @@ function App() {
   const [verificationCode, setVerificationCode] = useState('');
   const [verifyingOtp, setVerifyingOtp] = useState(false);
   const [verifying2Fa, setVerifying2Fa] = useState(false);
+  const [totpQr, setTotpQr] = useState('');
+  const [totpManualKey, setTotpManualKey] = useState('');
+  const [totpSetupCode, setTotpSetupCode] = useState('');
+  const [totpDisableCode, setTotpDisableCode] = useState('');
+  const [totpBusy, setTotpBusy] = useState(false);
 
   // Client registration fields
   const [clientName, setClientName] = useState('');
@@ -213,15 +242,15 @@ function App() {
     setUser(null);
     localStorage.removeItem('scoutify_token');
     setCurrentView('search');
-    setSearchResults([]);
-    setHasSearched(false);
+    searchRequestId.current.standard += 1;
+    searchRequestId.current.ai += 1;
+    setSearchByMode({ standard: createSearchModeState(), ai: createSearchModeState() });
   };
 
   // Perform search
   const handleSearch = async (e) => {
     if (e) e.preventDefault();
-    setSearching(true);
-    setHasSearched(true);
+    const requestId = startSearchRequest('standard');
     try {
       const headers = token ? { 'Authorization': `Bearer ${token}` } : {};
       const queryParams = new URLSearchParams({
@@ -231,14 +260,19 @@ function App() {
 
       const res = await fetch(`${API_BASE}/search?${queryParams.toString()}`, { headers });
       const data = await res.json();
+      if (!isLatestSearchRequest('standard', requestId)) return;
 
-      setSearchResults(data.results || []);
-      setTotalResults(data.totalResults || 0);
-      setPaywallActive(data.paywallActive || false);
+      updateSearchMode('standard', {
+        results: data.results || [],
+        totalResults: data.totalResults || 0,
+        paywallActive: data.paywallActive || false
+      });
     } catch (err) {
       console.error(err);
     } finally {
-      setSearching(false);
+      if (isLatestSearchRequest('standard', requestId)) {
+        updateSearchMode('standard', { searching: false });
+      }
     }
   };
 
@@ -252,9 +286,7 @@ function App() {
       return;
     }
 
-    setSearching(true);
-    setIsAiSearching(true);
-    setHasSearched(true);
+    const requestId = startSearchRequest('ai');
     setAiLoaderStep(0);
 
     const steps = [
@@ -284,21 +316,25 @@ function App() {
 
       const data = await res.json();
       clearInterval(interval);
+      if (!isLatestSearchRequest('ai', requestId)) return;
 
       if (!res.ok) {
         alert(data.message || 'AI Matching failed.');
         return;
       }
 
-      setSearchResults(data.results || []);
-      setTotalResults(data.results?.length || 0);
-      setPaywallActive(false);
+      updateSearchMode('ai', {
+        results: data.results || [],
+        totalResults: data.results?.length || 0,
+        paywallActive: false
+      });
     } catch (err) {
       clearInterval(interval);
       console.error(err);
     } finally {
-      setSearching(false);
-      setIsAiSearching(false);
+      if (isLatestSearchRequest('ai', requestId)) {
+        updateSearchMode('ai', { searching: false });
+      }
     }
   };
 
@@ -329,20 +365,24 @@ function App() {
     setSearchMode('standard');
     setService('Architectural');
     setLocation('Delhi');
-    setSearching(true);
-    setHasSearched(true);
+    const requestId = startSearchRequest('standard');
     try {
       const headers = token ? { 'Authorization': `Bearer ${token}` } : {};
       const queryParams = new URLSearchParams({ service: 'Architectural', location: 'Delhi' });
       const res = await fetch(`${API_BASE}/search?${queryParams.toString()}`, { headers });
       const data = await res.json();
-      setSearchResults(data.results || []);
-      setTotalResults(data.totalResults || 0);
-      setPaywallActive(data.paywallActive || false);
+      if (!isLatestSearchRequest('standard', requestId)) return;
+      updateSearchMode('standard', {
+        results: data.results || [],
+        totalResults: data.totalResults || 0,
+        paywallActive: data.paywallActive || false
+      });
     } catch (err) {
       console.error(err);
     } finally {
-      setSearching(false);
+      if (isLatestSearchRequest('standard', requestId)) {
+        updateSearchMode('standard', { searching: false });
+      }
     }
   };
 
@@ -368,9 +408,7 @@ function App() {
 
     setSearchMode('ai');
     setAiQuery('I need a false ceiling specialist in Tirupati');
-    setSearching(true);
-    setIsAiSearching(true);
-    setHasSearched(true);
+    const requestId = startSearchRequest('ai');
     setAiLoaderStep(0);
 
     const steps = ["Analyzing requirements...", "Scanning database...", "Computing alignment...", "Ranking profiles..."];
@@ -391,22 +429,26 @@ function App() {
       });
       const data = await res.json();
       clearInterval(interval);
-      setSearchResults(data.results || []);
-      setTotalResults(data.results?.length || 0);
-      setPaywallActive(false);
+      if (!isLatestSearchRequest('ai', requestId)) return;
+      updateSearchMode('ai', {
+        results: data.results || [],
+        totalResults: data.results?.length || 0,
+        paywallActive: false
+      });
     } catch (err) {
       clearInterval(interval);
       console.error(err);
     } finally {
-      setSearching(false);
-      setIsAiSearching(false);
+      if (isLatestSearchRequest('ai', requestId)) {
+        updateSearchMode('ai', { searching: false });
+      }
     }
   };
 
   // Trigger search on component load or on plan changes
 
   useEffect(() => {
-    if (hasSearched && searchMode === 'standard') {
+    if (searchByMode.standard.hasSearched) {
       handleSearch();
     }
   }, [user?.subscriptionPlan]);
@@ -699,7 +741,7 @@ function App() {
       if (data.requires2FA) {
         setVerificationEmail(data.email);
         setVerifying2Fa(true);
-        setAuthSuccess('2FA verification code sent/logged.');
+        setAuthSuccess('Open Google Authenticator and enter the current 6-digit code.');
         return;
       }
 
@@ -921,6 +963,14 @@ function App() {
             return setAuthError(data.message || 'Google authentication failed.');
           }
 
+          if (data.requires2FA) {
+            setVerificationEmail(data.email);
+            setVerifying2Fa(true);
+            setShowAuthModal(true);
+            setAuthSuccess('Open Google Authenticator and enter the current 6-digit code.');
+            return;
+          }
+
           setToken(data.token);
           setUser(data.user);
           setShowAuthModal(false);
@@ -1076,29 +1126,84 @@ function App() {
     }
   };
 
-  // Profile: Toggle 2FA settings for Client
-  const toggle2FA = async (enable) => {
+  const startTotpSetup = async () => {
+    setTotpBusy(true);
     try {
-      const res = await fetch(`${API_BASE}/auth/toggle-2fa`, {
+      const res = await fetch(`${API_BASE}/auth/2fa/setup`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.message || 'Could not start authenticator setup.');
+        return;
+      }
+      setTotpQr(data.qrDataUrl);
+      setTotpManualKey(data.manualKey);
+      setTotpSetupCode('');
+    } catch (err) {
+      console.error(err);
+      alert('Could not start authenticator setup.');
+    } finally {
+      setTotpBusy(false);
+    }
+  };
+
+  const confirmTotpEnable = async (e) => {
+    e.preventDefault();
+    setTotpBusy(true);
+    try {
+      const res = await fetch(`${API_BASE}/auth/2fa/enable`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
+          Authorization: `Bearer ${token}`
         },
-        body: JSON.stringify({ enabled: enable })
+        body: JSON.stringify({ code: totpSetupCode })
       });
       const data = await res.json();
-      if (res.ok) {
-        setUser(prev => ({
-          ...prev,
-          twoFactorEnabled: data.twoFactorEnabled
-        }));
-        alert(`2FA configuration successfully updated.`);
-      } else {
-        alert(data.message || 'Failed to toggle 2FA.');
+      if (!res.ok) {
+        alert(data.message || 'Could not enable authenticator.');
+        return;
       }
+      setUser(prev => ({ ...prev, twoFactorEnabled: true }));
+      setTotpQr('');
+      setTotpManualKey('');
+      setTotpSetupCode('');
+      alert('Google Authenticator is on. Next login will ask for the app code.');
     } catch (err) {
       console.error(err);
+      alert('Could not enable authenticator.');
+    } finally {
+      setTotpBusy(false);
+    }
+  };
+
+  const disableTotp = async (e) => {
+    e.preventDefault();
+    setTotpBusy(true);
+    try {
+      const res = await fetch(`${API_BASE}/auth/2fa/disable`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({ code: totpDisableCode })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.message || 'Could not disable authenticator.');
+        return;
+      }
+      setUser(prev => ({ ...prev, twoFactorEnabled: false }));
+      setTotpDisableCode('');
+      alert('Google Authenticator is off.');
+    } catch (err) {
+      console.error(err);
+      alert('Could not disable authenticator.');
+    } finally {
+      setTotpBusy(false);
     }
   };
 
@@ -1191,7 +1296,7 @@ function App() {
                   type="button"
                   className={`btn ${searchMode === 'standard' ? 'btn-primary' : 'btn-secondary'}`}
                   style={{ padding: '8px 16px', fontSize: '14px' }}
-                  onClick={() => { setSearchMode('standard'); setHasSearched(false); setSearchResults([]); }}
+                  onClick={() => setSearchMode('standard')}
                 >
                   Standard Search
                 </button>
@@ -1199,7 +1304,7 @@ function App() {
                   type="button"
                   className={`btn ${searchMode === 'ai' ? 'btn-primary' : 'btn-secondary'}`}
                   style={{ padding: '8px 16px', fontSize: '14px', gap: '6px' }}
-                  onClick={() => { setSearchMode('ai'); setHasSearched(false); setSearchResults([]); }}
+                  onClick={() => setSearchMode('ai')}
                 >
                   <Sparkles size={14} /> AI Matchmaker
                 </button>
@@ -1590,19 +1695,60 @@ function App() {
                     <strong style={{ textTransform: 'capitalize' }}>{user.role}</strong>
                   </div>
 
-                  {user.role === 'client' && (
+                  {(user.role === 'client' || user.role === 'artisan') && (
                     <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '14px', marginTop: '10px' }}>
-                      <h4 style={{ fontSize: '15px', marginBottom: '10px' }}>Security Settings (2FA)</h4>
+                      <h4 style={{ fontSize: '15px', marginBottom: '10px' }}>Google Authenticator (2FA)</h4>
                       <p style={{ fontSize: '13px', color: 'var(--color-text-secondary)', marginBottom: '12px' }}>
-                        Require verification code during email/password login.
+                        After password, login needs the 6-digit code from the Google Authenticator app on your phone. No SMS.
                       </p>
                       {user.twoFactorEnabled ? (
-                        <button className="btn btn-outline" onClick={() => toggle2FA(false)} style={{ width: '100%', fontSize: '13px', padding: '8px' }}>
-                          Disable Login 2FA
-                        </button>
+                        <form onSubmit={disableTotp}>
+                          <label className="form-label">Current app code to disable</label>
+                          <input
+                            type="text"
+                            className="form-control"
+                            inputMode="numeric"
+                            autoComplete="one-time-code"
+                            placeholder="6-digit code"
+                            value={totpDisableCode}
+                            onChange={e => setTotpDisableCode(e.target.value)}
+                            required
+                            style={{ marginBottom: '10px' }}
+                          />
+                          <button type="submit" className="btn btn-outline" disabled={totpBusy} style={{ width: '100%', fontSize: '13px', padding: '8px' }}>
+                            Disable Authenticator
+                          </button>
+                        </form>
+                      ) : totpQr ? (
+                        <form onSubmit={confirmTotpEnable}>
+                          <p style={{ fontSize: '13px', color: 'var(--color-text-secondary)', marginBottom: '10px' }}>
+                            1. Install Google Authenticator. 2. Scan this QR. 3. Enter the code the app shows.
+                          </p>
+                          <img src={totpQr} alt="Authenticator QR code" style={{ width: '180px', height: '180px', background: '#fff', borderRadius: '8px', display: 'block', margin: '0 auto 12px' }} />
+                          <p style={{ fontSize: '11px', color: 'var(--color-text-secondary)', wordBreak: 'break-all', marginBottom: '10px' }}>
+                            Or type this key in the app: {totpManualKey}
+                          </p>
+                          <input
+                            type="text"
+                            className="form-control"
+                            inputMode="numeric"
+                            autoComplete="one-time-code"
+                            placeholder="6-digit code from the app"
+                            value={totpSetupCode}
+                            onChange={e => setTotpSetupCode(e.target.value)}
+                            required
+                            style={{ marginBottom: '10px' }}
+                          />
+                          <button type="submit" className="btn btn-primary" disabled={totpBusy} style={{ width: '100%', fontSize: '13px', padding: '8px', color: '#000', marginBottom: '8px' }}>
+                            Confirm and enable
+                          </button>
+                          <button type="button" className="btn btn-outline" disabled={totpBusy} style={{ width: '100%', fontSize: '13px', padding: '8px' }} onClick={() => { setTotpQr(''); setTotpManualKey(''); setTotpSetupCode(''); }}>
+                            Cancel
+                          </button>
+                        </form>
                       ) : (
-                        <button className="btn btn-primary" onClick={() => toggle2FA(true)} style={{ width: '100%', fontSize: '13px', padding: '8px', color: '#000' }}>
-                          Enable Login 2FA
+                        <button type="button" className="btn btn-primary" disabled={totpBusy} onClick={startTotpSetup} style={{ width: '100%', fontSize: '13px', padding: '8px', color: '#000' }}>
+                          Set up Google Authenticator
                         </button>
                       )}
                     </div>
@@ -2279,7 +2425,7 @@ function App() {
                 {verifyingOtp ? 'Account Verification' : verifying2Fa ? 'Two-Factor Login' : authTab === 'login' ? 'Welcome Back' : 'Get Started'}
               </h2>
               <p style={{ color: 'var(--color-text-secondary)', fontSize: '14px' }}>
-                {verifyingOtp ? 'Enter verification code' : verifying2Fa ? 'Check OTP to sign in' : 'Unlock direct connections with verified artisans.'}
+                {verifyingOtp ? 'Enter verification code' : verifying2Fa ? 'Use Google Authenticator' : 'Unlock direct connections with verified artisans.'}
               </p>
             </div>
 
@@ -2327,11 +2473,13 @@ function App() {
             {verifying2Fa && (
               <form onSubmit={handleVerify2Fa}>
                 <div className="form-group">
-                  <label className="form-label">2FA Security Code</label>
+                  <label className="form-label">Google Authenticator code</label>
                   <input
                     type="text"
                     className="form-control"
-                    placeholder="Enter 2FA login OTP"
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    placeholder="Current 6-digit code"
                     value={verificationCode}
                     onChange={e => setVerificationCode(e.target.value)}
                     required

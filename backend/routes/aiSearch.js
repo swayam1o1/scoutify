@@ -43,11 +43,11 @@ function trigramSimilarity(leftValue, rightValue) {
 }
 
 async function semanticSearch(queryEmbedding, queryText, { city, limit = 3 }) {
-  const filter = { embedding: { $exists: true, $size: 768 } };
+  const filter = { embedding: { $exists: true, $size: queryEmbedding.length } };
   if (city) filter.city = { $regex: city.trim(), $options: 'i' };
   const candidates = await Artisan.find(filter).lean();
-  return candidates.map(artisan => {
-    const semanticScore = cosineSimilarity(artisan.embedding, queryEmbedding);
+  return candidates.map(({ embedding, ...artisan }) => {
+    const semanticScore = cosineSimilarity(embedding, queryEmbedding);
     const nameScore = trigramSimilarity(artisan.companyName || '', queryText);
     return {
       ...artisan,
@@ -92,7 +92,7 @@ router.post('/', async (req, res) => {
     // If Gemini key is set, run live pipeline
     if (genAI) {
       try {
-        const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+        const model = genAI.getGenerativeModel({ model: 'gemini-3.6-flash' });
 
         // Step 1: Extract intent parameters
         const intentPrompt = `Extract search keywords from the following natural language project brief. We need a service keyword (e.g. Architectural, False Ceiling, Painting, Create Art, Interior Designing, etc.) and a city keyword (e.g. Tirupati, Delhi, Pune, Bangalore, Lucknow, Ghaziabad, etc.). 
@@ -120,7 +120,7 @@ Return the response ONLY as a JSON object, e.g. { "service": "extracted_service"
 
         // Prefer local vector ranking when the optional embedding backfill has run.
         try {
-          const embeddingModel = genAI.getGenerativeModel({ model: 'text-embedding-004' });
+          const embeddingModel = genAI.getGenerativeModel({ model: 'gemini-embedding-001' });
           const embeddingResult = await embeddingModel.embedContent(query);
           const queryEmbedding = embeddingResult.embedding.values;
           const semanticResults = await semanticSearch(queryEmbedding, query, {

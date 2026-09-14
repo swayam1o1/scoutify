@@ -172,7 +172,7 @@ router.get('/:boardId/recommendations', authenticateToken, async (req, res) => {
     // If Gemini key is set, use AI to generate recommendations
     if (genAI) {
       try {
-        const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+        const model = genAI.getGenerativeModel({ model: 'gemini-3.6-flash' });
         const savedMeta = savedVendors.map(v => ({
           name: v.companyName,
           specializations: v.specialization,

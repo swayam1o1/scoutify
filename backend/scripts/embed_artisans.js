@@ -10,8 +10,11 @@ if (!GEMINI_API_KEY) {
   throw new Error('GEMINI_API_KEY is required to generate artisan embeddings.');
 }
 
+const EMBEDDING_MODEL = 'gemini-embedding-001';
+const EMBEDDING_DIMENSIONS = 3072;
+
 const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
-const embeddingModel = genAI.getGenerativeModel({ model: 'text-embedding-004' });
+const embeddingModel = genAI.getGenerativeModel({ model: EMBEDDING_MODEL });
 
 function buildSearchText(artisan) {
   return [artisan.companyName, artisan.personOfContact, artisan.city, artisan.specialization?.join(', ')]
@@ -28,8 +31,8 @@ async function run() {
     const searchText = buildSearchText(artisan);
     const response = await embeddingModel.embedContent(searchText);
     const embedding = response.embedding.values;
-    if (!Array.isArray(embedding) || embedding.length !== 768) {
-      throw new Error(`Unexpected embedding dimensions for ${artisan.companyName}`);
+    if (!Array.isArray(embedding) || embedding.length !== EMBEDDING_DIMENSIONS) {
+      throw new Error(`Unexpected embedding dimensions (${embedding?.length}) for ${artisan.companyName}. Expected ${EMBEDDING_DIMENSIONS}.`);
     }
     await Artisan.updateOne({ _id: artisan._id }, { $set: { searchText, embedding } });
     embedded++;

@@ -2,13 +2,58 @@ const express = require('express');
 const router = express.Router();
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const speakeasy = require('speakeasy');
+const QRCode = require('qrcode');
 const User = require('../models/User');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'supersecretscoutifykey12345';
+const TOTP_ISSUER = process.env.TOTP_ISSUER || 'Scoutify';
 
-// Helper to generate OTP
 function generateOTP() {
   return Math.floor(100000 + Math.random() * 900000).toString();
+}
+
+function publicUser(user) {
+  return {
+    id: user._id,
+    name: user.name,
+    email: user.email,
+    role: user.role,
+    subscriptionPlan: user.subscriptionPlan,
+    twoFactorEnabled: user.twoFactorEnabled
+  };
+}
+
+function verifyTotp(secret, code) {
+  const token = String(code || '').replace(/\s/g, '');
+  if (!secret || !/^\d{6}$/.test(token)) return false;
+  return speakeasy.totp.verify({
+    secret,
+    encoding: 'base32',
+    token,
+    window: 1
+  });
+}
+
+async function getAuthedUser(req, res) {
+  const authHeader = req.headers.authorization;
+  if (!authHeader) {
+    res.status(401).json({ message: 'No token provided.' });
+    return null;
+  }
+  try {
+    const token = authHeader.split(' ')[1];
+    const decoded = jwt.verify(token, JWT_SECRET);
+    const user = await User.findById(decoded.id);
+    if (!user) {
+      res.status(404).json({ message: 'User not found.' });
+      return null;
+    }
+    return user;
+  } catch (err) {
+    res.status(401).json({ message: 'Invalid token.' });
+    return null;
+  }
 }
 
 // 1. REGISTER
@@ -145,37 +190,19 @@ router.post('/login', async (req, res) => {
       });
     }
 
-    // Check if Client 2FA is enabled
-    if (user.role === 'client' && user.twoFactorEnabled) {
-      const otp = generateOTP();
-      user.otp = otp;
-      user.otpExpires = new Date(Date.now() + 10 * 60 * 1000);
-      await user.save();
-
-      console.log(`\n==========================================`);
-      console.log(`[DEV 2FA] 2FA Login Code for client ${email}: ${otp}`);
-      console.log(`==========================================\n`);
-
+    if (user.twoFactorEnabled && user.twoFactorSecret) {
       return res.json({
-        message: '2FA code required.',
-        email,
+        message: 'Enter the 6-digit code from Google Authenticator.',
+        email: user.email,
         requires2FA: true
       });
     }
 
-    // Success login
     const token = jwt.sign({ id: user._id, role: user.role }, JWT_SECRET, { expiresIn: '1d' });
     res.json({
       message: 'Login successful.',
       token,
-      user: {
-        id: user._id,
-        name: user.name,
-        email: user.email,
-        role: user.role,
-        subscriptionPlan: user.subscriptionPlan,
-        twoFactorEnabled: user.twoFactorEnabled
-      }
+      user: publicUser(user)
     });
   } catch (err) {
     console.error(err);
@@ -183,36 +210,26 @@ router.post('/login', async (req, res) => {
   }
 });
 
-// 4. VERIFY 2FA
+// 4. VERIFY 2FA (Google Authenticator TOTP)
 router.post('/verify-2fa', async (req, res) => {
   try {
-    const { email, code } = req.body;
+    const email = req.body.email?.trim().toLowerCase();
+    const { code } = req.body;
 
     const user = await User.findOne({ email });
-    if (!user || user.role !== 'client') {
-      return res.status(404).json({ message: 'Client account not found.' });
+    if (!user || !user.twoFactorEnabled || !user.twoFactorSecret) {
+      return res.status(400).json({ message: 'Authenticator login is not enabled for this account.' });
     }
 
-    if (user.otp !== code || user.otpExpires < new Date()) {
-      return res.status(400).json({ message: 'Invalid or expired 2FA code.' });
+    if (!verifyTotp(user.twoFactorSecret, code)) {
+      return res.status(400).json({ message: 'Invalid authenticator code. Try the current 6-digit number.' });
     }
-
-    user.otp = undefined;
-    user.otpExpires = undefined;
-    await user.save();
 
     const token = jwt.sign({ id: user._id, role: user.role }, JWT_SECRET, { expiresIn: '1d' });
     res.json({
       message: '2FA verified successfully.',
       token,
-      user: {
-        id: user._id,
-        name: user.name,
-        email: user.email,
-        role: user.role,
-        subscriptionPlan: user.subscriptionPlan,
-        twoFactorEnabled: user.twoFactorEnabled
-      }
+      user: publicUser(user)
     });
   } catch (err) {
     console.error(err);
@@ -252,19 +269,20 @@ router.post('/google-login', async (req, res) => {
       await user.save();
     }
 
+    if (user.twoFactorEnabled && user.twoFactorSecret) {
+      return res.json({
+        message: 'Enter the 6-digit code from Google Authenticator.',
+        email: user.email,
+        requires2FA: true
+      });
+    }
+
     const token = jwt.sign({ id: user._id, role: user.role }, JWT_SECRET, { expiresIn: '1d' });
 
     res.json({
       message: 'Google login successful.',
       token,
-      user: {
-        id: user._id,
-        name: user.name,
-        email: user.email,
-        role: user.role,
-        subscriptionPlan: user.subscriptionPlan,
-        twoFactorEnabled: user.twoFactorEnabled
-      }
+      user: publicUser(user)
     });
   } catch (err) {
     console.error(err);
@@ -272,29 +290,92 @@ router.post('/google-login', async (req, res) => {
   }
 });
 
-// 6. TOGGLE 2FA (Requires Auth Middleware inside frontend, we verify JWT here)
-router.post('/toggle-2fa', async (req, res) => {
+// 6. GOOGLE AUTHENTICATOR SETUP (QR) — does not enable until /2fa/enable
+router.post('/2fa/setup', async (req, res) => {
   try {
-    const authHeader = req.headers.authorization;
-    if (!authHeader) return res.status(401).json({ message: 'No token provided.' });
+    const user = await getAuthedUser(req, res);
+    if (!user) return;
 
-    const token = authHeader.split(' ')[1];
-    const decoded = jwt.verify(token, JWT_SECRET);
+    if (user.twoFactorEnabled) {
+      return res.status(400).json({ message: 'Authenticator is already enabled. Disable it first to set up again.' });
+    }
 
-    const { enabled } = req.body;
-    const user = await User.findById(decoded.id);
-    if (!user) return res.status(404).json({ message: 'User not found.' });
+    const generated = speakeasy.generateSecret({
+      length: 20,
+      name: `${TOTP_ISSUER} (${user.email})`,
+      issuer: TOTP_ISSUER
+    });
 
-    user.twoFactorEnabled = enabled;
+    user.twoFactorSecret = generated.base32;
+    user.twoFactorEnabled = false;
     await user.save();
 
+    const qrDataUrl = await QRCode.toDataURL(generated.otpauth_url);
     res.json({
-      message: `2FA ${enabled ? 'enabled' : 'disabled'} successfully.`,
-      twoFactorEnabled: user.twoFactorEnabled
+      qrDataUrl,
+      manualKey: generated.base32,
+      otpauthUrl: generated.otpauth_url
     });
   } catch (err) {
     console.error(err);
-    res.status(500).json({ message: 'Server error updating 2FA settings.' });
+    res.status(500).json({ message: 'Server error creating authenticator setup.' });
+  }
+});
+
+router.post('/2fa/enable', async (req, res) => {
+  try {
+    const user = await getAuthedUser(req, res);
+    if (!user) return;
+
+    if (!user.twoFactorSecret) {
+      return res.status(400).json({ message: 'Start authenticator setup first.' });
+    }
+    if (user.twoFactorEnabled) {
+      return res.status(400).json({ message: 'Authenticator is already enabled.' });
+    }
+
+    if (!verifyTotp(user.twoFactorSecret, req.body.code)) {
+      return res.status(400).json({ message: 'Invalid authenticator code. Scan the QR again if needed.' });
+    }
+
+    user.twoFactorEnabled = true;
+    await user.save();
+    res.json({
+      message: 'Google Authenticator enabled for login.',
+      twoFactorEnabled: true
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Server error enabling authenticator.' });
+  }
+});
+
+router.post('/2fa/disable', async (req, res) => {
+  try {
+    const user = await getAuthedUser(req, res);
+    if (!user) return;
+
+    if (!user.twoFactorEnabled || !user.twoFactorSecret) {
+      user.twoFactorEnabled = false;
+      user.twoFactorSecret = undefined;
+      await user.save();
+      return res.json({ message: 'Authenticator is already off.', twoFactorEnabled: false });
+    }
+
+    if (!verifyTotp(user.twoFactorSecret, req.body.code)) {
+      return res.status(400).json({ message: 'Invalid authenticator code.' });
+    }
+
+    user.twoFactorEnabled = false;
+    user.twoFactorSecret = undefined;
+    await user.save();
+    res.json({
+      message: 'Google Authenticator disabled.',
+      twoFactorEnabled: false
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Server error disabling authenticator.' });
   }
 });
 
