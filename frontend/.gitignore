@@ -7,10 +7,19 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
+# Dependencies / build
 node_modules
 dist
 dist-ssr
+
+# Secrets / local env (root .gitignore also covers these)
+.env
+.env.local
+.env.*.local
 *.local
+*.pem
+*.key
+credentials.json
 
 # Editor directories and files
 .vscode/*

@@ -19,7 +19,7 @@ import {
 } from 'lucide-react';
 import './App.css';
 
-const API_BASE = 'http://localhost:5001/api';
+const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:5001/api';
 
 // Custom inline SVG for Instagram icon since brand icons are removed from Lucide-react v1+
 const Instagram = ({ size = 24, className }) => (
