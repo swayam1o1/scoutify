@@ -117,6 +117,12 @@ export function SearchView({ search, boards, user, onRequireAuth, onNavigate }) 
                   placeholder="I need a modern false ceiling expert in Tirupati to remodel a living room under 3 Lakhs..."
                   value={aiQuery}
                   onChange={(e) => setAiQuery(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault();
+                      e.currentTarget.form?.requestSubmit();
+                    }
+                  }}
                   required
                   style={{ resize: 'none' }}
                 />
