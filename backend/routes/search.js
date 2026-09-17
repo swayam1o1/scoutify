@@ -3,6 +3,7 @@ const router = express.Router();
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 const Artisan = require('../models/Artisan');
+const { sanitizeArtisans } = require('../utils/sanitizeArtisan');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'supersecretscoutifykey12345';
 
@@ -58,12 +59,14 @@ router.get('/', async (req, res) => {
 
     const paywallActive = totalResults > 10 && userPlan === 'basic';
 
+    // Guests: names/categories/summary only — no phone/email/Instagram (roles doc §2.1)
     res.json({
-      results,
+      results: sanitizeArtisans(results, { isLoggedIn }),
       totalResults,
       paywallActive,
       isLoggedIn,
-      userPlan
+      userPlan,
+      contactLocked: !isLoggedIn
     });
   } catch (err) {
     console.error(err);

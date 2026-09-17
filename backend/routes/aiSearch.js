@@ -4,6 +4,7 @@ const jwt = require('jsonwebtoken');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const User = require('../models/User');
 const Artisan = require('../models/Artisan');
+const { sanitizeArtisanForUser } = require('../utils/sanitizeArtisan');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'supersecretscoutifykey12345';
 
@@ -131,7 +132,7 @@ Return the response ONLY as a JSON object, e.g. { "service": "extracted_service"
           if (semanticResults.length > 0) {
             return res.json({
               results: semanticResults.map((artisan, index) => ({
-                ...artisan,
+                ...sanitizeArtisanForUser(artisan),
                 matchPercentage: Math.max(0, Math.min(99, Math.round(artisan.combinedScore * 100))),
                 aiReasoning: `Ranked from ${Math.round(artisan.semanticScore * 100)}% semantic similarity and ${Math.round(artisan.nameScore * 100)}% name similarity.`
               })),
@@ -196,7 +197,7 @@ Return the response ONLY as a JSON array of objects, e.g. [{"id": "artisan_id", 
           const artisan = candidates.find(c => c._id.toString() === meta.id);
           if (artisan) {
             results.push({
-              ...artisan.toObject(),
+              ...sanitizeArtisanForUser(artisan),
               matchPercentage: meta.matchPercentage,
               aiReasoning: meta.reasoning
             });
@@ -207,7 +208,7 @@ Return the response ONLY as a JSON array of objects, e.g. [{"id": "artisan_id", 
         if (results.length === 0) {
           candidates.slice(0, 3).forEach((c, idx) => {
             results.push({
-              ...c.toObject(),
+              ...sanitizeArtisanForUser(c),
               matchPercentage: 90 - idx * 5,
               aiReasoning: `Matched based on specialization in ${c.specialization.join(', ')} in ${c.city}.`
             });
@@ -262,7 +263,7 @@ Return the response ONLY as a JSON array of objects, e.g. [{"id": "artisan_id", 
     ];
 
     const results = candidates.map((c, idx) => ({
-      ...c.toObject(),
+      ...sanitizeArtisanForUser(c),
       matchPercentage: 98 - idx * 6,
       aiReasoning: mockReasonings[idx] || `Verified specialist in ${c.city} matching your service requirements.`
     }));
