@@ -1,3 +1,4 @@
+import { ShieldCheck } from 'lucide-react';
 import { UserMenu } from './UserMenu';
 
 export function Navbar({ currentView, user, onNavigate, onOpenBoards, onSignIn, onLogout }) {
@@ -21,6 +22,16 @@ export function Navbar({ currentView, user, onNavigate, onOpenBoards, onSignIn, 
         >
           Plans
         </button>
+
+        {user?.role === 'admin' && (
+          <button
+            className={`btn btn-secondary ${currentView === 'admin' ? 'active-tab' : ''}`}
+            onClick={() => onNavigate('admin')}
+          >
+            <ShieldCheck size={16} />
+            Admin
+          </button>
+        )}
 
         {user ? (
           <UserMenu

@@ -1,4 +1,5 @@
 import { HelpCircle } from 'lucide-react';
+import { PasswordInput } from './PasswordInput';
 
 export function AuthModal({ auth }) {
   const {
@@ -194,13 +195,11 @@ export function AuthModal({ auth }) {
             </div>
             <div className="form-group">
               <label className="form-label">New Password</label>
-              <input
-                type="password"
-                className="form-control"
-                autoComplete="new-password"
-                placeholder="At least 8 characters"
+              <PasswordInput
                 value={forgotNewPassword}
                 onChange={e => setForgotNewPassword(e.target.value)}
+                autoComplete="new-password"
+                placeholder="At least 8 characters"
                 required
               />
             </div>
@@ -266,11 +265,10 @@ export function AuthModal({ auth }) {
                   </div>
                   <div className="form-group">
                     <label className="form-label">Password</label>
-                    <input
-                      type="password"
-                      className="form-control"
+                    <PasswordInput
                       value={loginPassword}
                       onChange={e => setLoginPassword(e.target.value)}
+                      autoComplete="current-password"
                       required
                     />
                     <span
@@ -305,11 +303,10 @@ export function AuthModal({ auth }) {
                   </div>
                   <div className="form-group">
                     <label className="form-label">Password</label>
-                    <input
-                      type="password"
-                      className="form-control"
+                    <PasswordInput
                       value={clientPassword}
                       onChange={e => setClientPassword(e.target.value)}
+                      autoComplete="new-password"
                       required
                     />
                   </div>
@@ -357,11 +354,10 @@ export function AuthModal({ auth }) {
                   </div>
                   <div className="form-group">
                     <label className="form-label">Password</label>
-                    <input
-                      type="password"
-                      className="form-control"
+                    <PasswordInput
                       value={artisanPassword}
                       onChange={e => setArtisanPassword(e.target.value)}
+                      autoComplete="new-password"
                       required
                     />
                   </div>

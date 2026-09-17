@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { authFetch } from '../api/client';
 
-export function useAuth({ onLogout } = {}) {
+export function useAuth({ onLogout, onLoginSuccess } = {}) {
   // User auth state
   const [user, setUser] = useState(null);
   const [token, setToken] = useState(localStorage.getItem('scoutify_token') || '');
@@ -160,7 +160,23 @@ export function useAuth({ onLogout } = {}) {
   // Used by the admin login screen, which issues its own token.
   const applySession = (nextToken, nextUser) => {
     setToken(nextToken);
-    if (nextUser) setUser(nextUser);
+    if (nextUser) {
+      setUser(nextUser);
+      onLoginSuccess?.(nextUser);
+    }
+  };
+
+  const completeAuthSession = (nextToken, nextUser) => {
+    setToken(nextToken);
+    setUser(nextUser);
+    setShowAuthModal(false);
+    setLoginEmail('');
+    setLoginPassword('');
+    setVerificationCode('');
+    setVerificationEmail('');
+    setVerifyingOtp(false);
+    setVerifying2Fa(false);
+    onLoginSuccess?.(nextUser);
   };
 
   const openAuthModal = (tab = 'login') => {
@@ -262,11 +278,7 @@ export function useAuth({ onLogout } = {}) {
       }
 
       // Success
-      setToken(data.token);
-      setUser(data.user);
-      setShowAuthModal(false);
-      setLoginEmail('');
-      setLoginPassword('');
+      completeAuthSession(data.token, data.user);
     } catch (err) {
       setAuthError('Connection error.');
     }
@@ -289,12 +301,7 @@ export function useAuth({ onLogout } = {}) {
         return setAuthError(data.message || 'Verification failed.');
       }
 
-      setToken(data.token);
-      setUser(data.user);
-      setVerifyingOtp(false);
-      setShowAuthModal(false);
-      setVerificationCode('');
-      setVerificationEmail('');
+      completeAuthSession(data.token, data.user);
     } catch (err) {
       setAuthError('Connection error.');
     }
@@ -317,12 +324,7 @@ export function useAuth({ onLogout } = {}) {
         return setAuthError(data.message || '2FA verification failed.');
       }
 
-      setToken(data.token);
-      setUser(data.user);
-      setVerifying2Fa(false);
-      setShowAuthModal(false);
-      setVerificationCode('');
-      setVerificationEmail('');
+      completeAuthSession(data.token, data.user);
     } catch (err) {
       setAuthError('Connection error.');
     }
@@ -487,6 +489,7 @@ export function useAuth({ onLogout } = {}) {
           setToken(data.token);
           setUser(data.user);
           setShowAuthModal(false);
+          onLoginSuccess?.(data.user);
         } catch (err) {
           setAuthError('Connection error during Google Sign-In.');
         }

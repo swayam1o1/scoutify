@@ -39,7 +39,10 @@ function App() {
   }, []);
 
   const auth = useAuth({
-    onLogout: () => navigate('search')
+    onLogout: () => navigate('search'),
+    onLoginSuccess: (nextUser) => {
+      if (nextUser?.role === 'admin') navigate('admin');
+    }
   });
 
   const search = useSearch({
