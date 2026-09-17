@@ -1,4 +1,69 @@
 import { Plus, Trash } from 'lucide-react';
+import { useCategories } from '../../hooks/useCategories';
+
+const STATUS_BANNERS = {
+  pending: {
+    text: 'Your listing is awaiting Scoutify admin approval. It stays hidden from search until it is approved.',
+    background: 'rgba(250, 204, 21, 0.12)',
+    border: '1px solid rgba(250, 204, 21, 0.35)',
+    color: '#fde68a'
+  },
+  rejected: {
+    text: 'Your listing was rejected by a Scoutify admin. Update the details below and save to request another review.',
+    background: 'rgba(239, 68, 68, 0.12)',
+    border: '1px solid var(--color-danger)',
+    color: '#fca5a5'
+  },
+  approved: {
+    text: 'Your listing is approved and visible in Scoutify search.',
+    background: 'rgba(20, 241, 149, 0.12)',
+    border: '1px solid var(--color-primary)',
+    color: '#a7f3d0'
+  },
+  verified: {
+    text: 'Your listing is live in Scoutify search.',
+    background: 'rgba(20, 241, 149, 0.12)',
+    border: '1px solid var(--color-primary)',
+    color: '#a7f3d0'
+  }
+};
+
+function StatusBanner({ status }) {
+  const banner = STATUS_BANNERS[status];
+  if (!banner) return null;
+
+  return (
+    <div style={{
+      background: banner.background,
+      border: banner.border,
+      color: banner.color,
+      padding: '12px',
+      borderRadius: '8px',
+      fontSize: '13px',
+      marginBottom: '16px'
+    }}>
+      {banner.text}
+    </div>
+  );
+}
+
+function FormFeedback({ message, error }) {
+  if (!message && !error) return null;
+
+  return (
+    <div style={{
+      background: error ? 'rgba(239,68,68,0.15)' : 'rgba(20,241,149,0.15)',
+      border: `1px solid ${error ? 'var(--color-danger)' : 'var(--color-primary)'}`,
+      color: error ? '#fca5a5' : '#a7f3d0',
+      padding: '10px 12px',
+      borderRadius: '8px',
+      fontSize: '13px',
+      marginBottom: '14px'
+    }}>
+      {error || message}
+    </div>
+  );
+}
 
 function TwoFactorPanel({ user, auth }) {
   const {
@@ -75,75 +140,214 @@ function TwoFactorPanel({ user, auth }) {
   );
 }
 
+function AccountSecurityPanel({ auth }) {
+  const { passwordForm, setPasswordForm, accountBusy, handleChangePassword, handleDeleteAccount } = auth;
+
+  return (
+    <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '14px', marginTop: '10px' }}>
+      <h4 style={{ fontSize: '15px', marginBottom: '10px' }}>Password</h4>
+      <form onSubmit={handleChangePassword}>
+        <input
+          type="password"
+          className="form-control"
+          placeholder="Current password"
+          autoComplete="current-password"
+          value={passwordForm.currentPassword}
+          onChange={e => setPasswordForm({ ...passwordForm, currentPassword: e.target.value })}
+          required
+          style={{ marginBottom: '8px' }}
+        />
+        <input
+          type="password"
+          className="form-control"
+          placeholder="New password (min 8 characters)"
+          autoComplete="new-password"
+          value={passwordForm.newPassword}
+          onChange={e => setPasswordForm({ ...passwordForm, newPassword: e.target.value })}
+          required
+          style={{ marginBottom: '8px' }}
+        />
+        <input
+          type="password"
+          className="form-control"
+          placeholder="Confirm new password"
+          autoComplete="new-password"
+          value={passwordForm.confirmPassword}
+          onChange={e => setPasswordForm({ ...passwordForm, confirmPassword: e.target.value })}
+          required
+          style={{ marginBottom: '10px' }}
+        />
+        <button type="submit" className="btn btn-primary" disabled={accountBusy} style={{ width: '100%', fontSize: '13px', padding: '8px', color: '#000' }}>
+          Change Password
+        </button>
+      </form>
+
+      <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '14px', marginTop: '16px' }}>
+        <h4 style={{ fontSize: '15px', marginBottom: '8px' }}>Delete Account</h4>
+        <p style={{ fontSize: '12px', color: 'var(--color-text-secondary)', marginBottom: '10px' }}>
+          Removes your access and hides your data from Scoutify. Support can restore it on request.
+        </p>
+        <button
+          type="button"
+          className="btn btn-outline"
+          disabled={accountBusy}
+          onClick={handleDeleteAccount}
+          style={{ width: '100%', fontSize: '13px', padding: '8px', borderColor: 'var(--color-danger)', color: 'var(--color-danger)' }}
+        >
+          Delete My Account
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function CategoryPicker({ label, selected, onChange, placeholder }) {
+  const categories = useCategories();
+  const predefined = categories.filter(category => category !== 'Other');
+  const custom = selected.filter(tag => !predefined.includes(tag));
+
+  const toggle = (category) => {
+    onChange(selected.includes(category)
+      ? selected.filter(tag => tag !== category)
+      : [...selected, category]);
+  };
+
+  return (
+    <div className="form-group">
+      <label className="form-label">{label}</label>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '10px' }}>
+        {predefined.map(category => (
+          <button
+            type="button"
+            key={category}
+            className={`btn ${selected.includes(category) ? 'btn-primary' : 'btn-secondary'}`}
+            style={{ padding: '6px 12px', fontSize: '12px', color: selected.includes(category) ? '#000' : undefined }}
+            onClick={() => toggle(category)}
+          >
+            {category}
+          </button>
+        ))}
+      </div>
+      <input
+        type="text"
+        className="form-control"
+        placeholder={placeholder}
+        value={custom.join(', ')}
+        onChange={e => {
+          const typed = e.target.value.split(',').map(tag => tag.trim()).filter(Boolean);
+          onChange([...selected.filter(tag => predefined.includes(tag)), ...typed]);
+        }}
+      />
+      <span style={{ fontSize: '11px', color: 'var(--color-text-secondary)' }}>
+        Other / custom entries, comma separated.
+      </span>
+    </div>
+  );
+}
+
 function ArtisanListingForm({ auth }) {
-  const { profileForm, setProfileForm, newPortfolioLink, setNewPortfolioLink, handleArtisanProfileSave } = auth;
+  const {
+    profileForm,
+    setProfileForm,
+    newPortfolioLink,
+    setNewPortfolioLink,
+    handleArtisanProfileSave,
+    artisanListingStatus,
+    accountMessage,
+    accountError
+  } = auth;
+
+  const setField = (field) => (event) => setProfileForm({ ...profileForm, [field]: event.target.value });
 
   return (
     <div className="glass-card">
       <h3 style={{ marginBottom: '16px' }}>Public Directory Listing</h3>
+
+      <StatusBanner status={artisanListingStatus} />
+      <FormFeedback message={accountMessage} error={accountError} />
+
       <form onSubmit={handleArtisanProfileSave}>
         <div className="grid-container grid-2">
           <div className="form-group">
             <label className="form-label">Company Name</label>
-            <input
-              type="text"
-              className="form-control"
-              value={profileForm.companyName}
-              onChange={e => setProfileForm({ ...profileForm, companyName: e.target.value })}
-              required
-            />
+            <input type="text" className="form-control" value={profileForm.companyName} onChange={setField('companyName')} required />
           </div>
           <div className="form-group">
             <label className="form-label">Phone Number</label>
-            <input
-              type="text"
-              className="form-control"
-              value={profileForm.phoneNumber}
-              onChange={e => setProfileForm({ ...profileForm, phoneNumber: e.target.value })}
-            />
+            <input type="text" className="form-control" value={profileForm.phoneNumber} onChange={setField('phoneNumber')} />
           </div>
         </div>
 
         <div className="grid-container grid-2">
           <div className="form-group">
-            <label className="form-label">Instagram Handle</label>
-            <input
-              type="text"
-              className="form-control"
-              placeholder="@studio_name"
-              value={profileForm.instagram}
-              onChange={e => setProfileForm({ ...profileForm, instagram: e.target.value })}
-            />
+            <label className="form-label">Listing Email</label>
+            <input type="email" className="form-control" value={profileForm.email} onChange={setField('email')} />
           </div>
           <div className="form-group">
+            <label className="form-label">Instagram Handle</label>
+            <input type="text" className="form-control" placeholder="@studio_name" value={profileForm.instagram} onChange={setField('instagram')} />
+          </div>
+        </div>
+
+        <div className="grid-container grid-2">
+          <div className="form-group">
             <label className="form-label">Listing City</label>
-            <input
-              type="text"
-              className="form-control"
-              value={profileForm.city}
-              onChange={e => setProfileForm({ ...profileForm, city: e.target.value })}
-            />
+            <input type="text" className="form-control" value={profileForm.city} onChange={setField('city')} />
+          </div>
+          <div className="form-group">
+            <label className="form-label">Service Area</label>
+            <input type="text" className="form-control" placeholder="South Bangalore, whole of Karnataka..." value={profileForm.serviceArea} onChange={setField('serviceArea')} />
+          </div>
+        </div>
+
+        <div className="grid-container grid-2">
+          <div className="form-group">
+            <label className="form-label">Person of Contact</label>
+            <input type="text" className="form-control" value={profileForm.personOfContact} onChange={setField('personOfContact')} />
+          </div>
+          <div className="form-group">
+            <label className="form-label">Website</label>
+            <input type="url" className="form-control" placeholder="https://studio.com" value={profileForm.website} onChange={setField('website')} />
           </div>
         </div>
 
         <div className="form-group">
-          <label className="form-label">Person of Contact</label>
+          <label className="form-label">Studio Description</label>
+          <textarea
+            className="form-control"
+            rows={3}
+            placeholder="What your studio does, materials you work with, typical project sizes..."
+            value={profileForm.description}
+            onChange={setField('description')}
+          />
+        </div>
+
+        <CategoryPicker
+          label="Specializations"
+          selected={profileForm.specialization}
+          onChange={specialization => setProfileForm({ ...profileForm, specialization })}
+          placeholder="Modular Kitchens, Stonework..."
+        />
+
+        <div className="form-group">
+          <label className="form-label">Products (comma separated)</label>
           <input
             type="text"
             className="form-control"
-            value={profileForm.personOfContact}
-            onChange={e => setProfileForm({ ...profileForm, personOfContact: e.target.value })}
+            placeholder="Teak furniture, Pendant lights, Terrazzo tiles..."
+            value={profileForm.products.join(', ')}
+            onChange={e => setProfileForm({ ...profileForm, products: e.target.value.split(',').map(item => item.trim()).filter(Boolean) })}
           />
         </div>
 
         <div className="form-group">
-          <label className="form-label">Specializations (comma separated)</label>
+          <label className="form-label">Custom Tags (comma separated)</label>
           <input
             type="text"
             className="form-control"
-            placeholder="Architectural Services, Interior Styling, Contracting..."
-            value={profileForm.specialization.join(', ')}
-            onChange={e => setProfileForm({ ...profileForm, specialization: e.target.value.split(',').map(s => s.trim()) })}
+            placeholder="Sustainable, Turnkey, Heritage restoration..."
+            value={profileForm.customTags.join(', ')}
+            onChange={e => setProfileForm({ ...profileForm, customTags: e.target.value.split(',').map(item => item.trim()).filter(Boolean) })}
           />
         </div>
 
@@ -206,8 +410,65 @@ function ArtisanListingForm({ auth }) {
   );
 }
 
+function ClientProfileForm({ auth }) {
+  const { accountForm, setAccountForm, accountBusy, accountMessage, accountError, handleAccountProfileSave } = auth;
+
+  return (
+    <div className="glass-card">
+      <h3 style={{ marginBottom: '14px' }}>Client Profile Details</h3>
+      <FormFeedback message={accountMessage} error={accountError} />
+
+      <form onSubmit={handleAccountProfileSave}>
+        <div className="form-group">
+          <label className="form-label">Full Name</label>
+          <input
+            type="text"
+            className="form-control"
+            value={accountForm.name}
+            onChange={e => setAccountForm({ ...accountForm, name: e.target.value })}
+            required
+          />
+        </div>
+
+        <div className="grid-container grid-2">
+          <div className="form-group">
+            <label className="form-label">What best describes you?</label>
+            <select
+              className="form-control form-select"
+              value={accountForm.clientType}
+              onChange={e => setAccountForm({ ...accountForm, clientType: e.target.value })}
+            >
+              <option value="interior_designer">Interior Designer</option>
+              <option value="architectural_firm">Architectural Firm</option>
+              <option value="hobbyist">Hobbyist</option>
+              <option value="student">Student</option>
+              <option value="private_client">Private Client</option>
+            </select>
+          </div>
+          <div className="form-group">
+            <label className="form-label">Planned Sourcing Purpose</label>
+            <select
+              className="form-control form-select"
+              value={accountForm.plannedUse}
+              onChange={e => setAccountForm({ ...accountForm, plannedUse: e.target.value })}
+            >
+              <option value="source_vendors">Source Vendors for active projects</option>
+              <option value="hiring">Direct hiring for short-term projects</option>
+              <option value="collaboration">Collaborations and partnership reference</option>
+              <option value="research">Research and database compilation</option>
+            </select>
+          </div>
+        </div>
+
+        <button type="submit" className="btn btn-primary" disabled={accountBusy} style={{ width: '100%' }}>
+          Save Profile Details
+        </button>
+      </form>
+    </div>
+  );
+}
+
 function ClientPortalPanel({ auth, boards }) {
-  const { profileForm } = auth;
   const {
     boards: boardList,
     activeBoardId,
@@ -223,25 +484,7 @@ function ClientPortalPanel({ auth, boards }) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-      <div className="glass-card">
-        <h3 style={{ marginBottom: '14px' }}>Client Profile Details</h3>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-          <div className="grid-container grid-2">
-            <div className="glass-card" style={{ padding: '16px' }}>
-              <span style={{ display: 'block', fontSize: '12px', color: 'var(--color-text-secondary)' }}>User Type</span>
-              <strong style={{ fontSize: '16px', textTransform: 'capitalize' }}>
-                {profileForm.clientType || 'Interior Designer'}
-              </strong>
-            </div>
-            <div className="glass-card" style={{ padding: '16px' }}>
-              <span style={{ display: 'block', fontSize: '12px', color: 'var(--color-text-secondary)' }}>Planned Sourcing Purpose</span>
-              <strong style={{ fontSize: '16px', textTransform: 'capitalize' }}>
-                {profileForm.plannedUse || 'Contractor Hiring'}
-              </strong>
-            </div>
-          </div>
-        </div>
-      </div>
+      <ClientProfileForm auth={auth} />
 
       <div className="glass-card">
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border-color)', paddingBottom: '12px', marginBottom: '16px' }}>
@@ -379,13 +622,16 @@ export function DashboardView({ user, auth, boards }) {
               <strong>{user.name}</strong>
             </div>
             <div>
+              <span style={{ color: 'var(--color-text-secondary)', display: 'block', fontSize: '13px' }}>Email</span>
+              <strong style={{ fontSize: '14px', wordBreak: 'break-all' }}>{user.email}</strong>
+            </div>
+            <div>
               <span style={{ color: 'var(--color-text-secondary)', display: 'block', fontSize: '13px' }}>Account Role</span>
               <strong style={{ textTransform: 'capitalize' }}>{user.role}</strong>
             </div>
 
-            {(user.role === 'client' || user.role === 'artisan') && (
-              <TwoFactorPanel user={user} auth={auth} />
-            )}
+            <TwoFactorPanel user={user} auth={auth} />
+            <AccountSecurityPanel auth={auth} />
           </div>
         </div>
 

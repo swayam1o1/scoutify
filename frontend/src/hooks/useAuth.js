@@ -46,92 +46,128 @@ export function useAuth({ onLogout } = {}) {
   const [artisanCity, setArtisanCity] = useState('');
   const [artisanSpecialization, setArtisanSpecialization] = useState('');
 
+  // Forgot / reset password flow
+  const [forgotStage, setForgotStage] = useState(''); // '' | 'request' | 'reset'
+  const [forgotEmail, setForgotEmail] = useState('');
+  const [forgotOtp, setForgotOtp] = useState('');
+  const [forgotNewPassword, setForgotNewPassword] = useState('');
+
+  // Account settings (name + client profile + password + delete)
+  const [accountForm, setAccountForm] = useState({
+    name: '',
+    clientType: 'interior_designer',
+    plannedUse: 'source_vendors'
+  });
+  const [passwordForm, setPasswordForm] = useState({
+    currentPassword: '',
+    newPassword: '',
+    confirmPassword: ''
+  });
+  const [accountMessage, setAccountMessage] = useState('');
+  const [accountError, setAccountError] = useState('');
+  const [accountBusy, setAccountBusy] = useState(false);
+
   // Profile forms
   const [profileForm, setProfileForm] = useState({
     companyName: '',
     phoneNumber: '',
+    email: '',
     instagram: '',
     city: '',
     personOfContact: '',
+    website: '',
+    serviceArea: '',
+    description: '',
     specialization: [],
+    products: [],
+    customTags: [],
     portfolio: []
   });
   const [newPortfolioLink, setNewPortfolioLink] = useState('');
-
-  // Load user details if token is present
-  useEffect(() => {
-    if (token) {
-      localStorage.setItem('scoutify_token', token);
-      // Fetch user profile or decode token
-      try {
-        const decoded = JSON.parse(atob(token.split('.')[1]));
-        // Simple mock fetch details, we can also perform API request
-        setUser({
-          id: decoded.id,
-          name: decoded.role === 'client' ? 'Client Member' : 'Artisan Member',
-          email: '',
-          role: decoded.role,
-          subscriptionPlan: decoded.role === 'client' ? 'basic' : 'pro' // Default loaded info
-        });
-
-        // Load actual DB values
-        fetchUserProfile();
-      } catch (err) {
-        handleLogout();
-      }
-    } else {
-      localStorage.removeItem('scoutify_token');
-      setUser(null);
-    }
-  }, [token]);
-
-  // Fetch profiles based on role
-  const fetchUserProfile = async () => {
-    try {
-      // We can create a unified endpoint, or fetch specifically
-      if (user?.role === 'artisan') {
-        const res = await authFetch('/artisan/profile', { token });
-        if (res.ok) {
-          const data = await res.json();
-          if (data.profile) {
-            setProfileForm({
-              companyName: data.profile.companyName || '',
-              phoneNumber: data.profile.phoneNumber || '',
-              instagram: data.profile.instagram || '',
-              city: data.profile.city || '',
-              personOfContact: data.profile.personOfContact || '',
-              specialization: data.profile.specialization || [],
-              portfolio: data.profile.portfolio || []
-            });
-          }
-        }
-      }
-
-      // Refresh user fields
-      const resSearch = await authFetch('/search', { token });
-      if (resSearch.ok) {
-        const data = await resSearch.json();
-        if (data.isLoggedIn && user) {
-          setUser(prev => ({
-            ...prev,
-            subscriptionPlan: data.userPlan
-          }));
-        }
-      }
-    } catch (err) {
-      console.error(err);
-    }
-  };
+  const [artisanListingStatus, setArtisanListingStatus] = useState(null);
 
   const handleLogout = () => {
     setToken('');
     setUser(null);
+    setArtisanListingStatus(null);
     localStorage.removeItem('scoutify_token');
     onLogout?.();
   };
 
+  const applyUserToForms = (nextUser) => {
+    setAccountForm({
+      name: nextUser.name || '',
+      clientType: nextUser.clientProfile?.type || 'interior_designer',
+      plannedUse: nextUser.clientProfile?.plannedUse || 'source_vendors'
+    });
+
+    const listing = nextUser.artisanProfile || {};
+    setProfileForm({
+      companyName: listing.companyName || '',
+      phoneNumber: listing.phoneNumber || '',
+      email: listing.email || nextUser.email || '',
+      instagram: listing.instagram || '',
+      city: listing.city || '',
+      personOfContact: listing.personOfContact || '',
+      website: listing.website || '',
+      serviceArea: listing.serviceArea || '',
+      description: listing.description || '',
+      specialization: listing.specialization || [],
+      products: listing.products || [],
+      customTags: listing.customTags || [],
+      portfolio: listing.portfolio || []
+    });
+
+    setArtisanListingStatus(nextUser.artisanListing?.contactStatus || null);
+  };
+
+  // Single source of truth for the session user.
+  const refreshUser = async (activeToken = token) => {
+    if (!activeToken) return null;
+    try {
+      const res = await authFetch('/auth/me', { token: activeToken });
+      if (!res.ok) {
+        // Expired token, or an account that was deleted/suspended while signed in.
+        if ([401, 403, 404].includes(res.status)) {
+          const data = await res.json().catch(() => ({}));
+          handleLogout();
+          if (data.message) setAuthError(data.message);
+        }
+        return null;
+      }
+      const data = await res.json();
+      setUser(data.user);
+      applyUserToForms(data.user);
+      return data.user;
+    } catch (err) {
+      console.error('Could not load account details:', err);
+      return null;
+    }
+  };
+
+  // Load user details if token is present
+  useEffect(() => {
+    if (!token) {
+      localStorage.removeItem('scoutify_token');
+      setUser(null);
+      setArtisanListingStatus(null);
+      return;
+    }
+    localStorage.setItem('scoutify_token', token);
+    refreshUser(token);
+  }, [token]);
+
+  // Used by the admin login screen, which issues its own token.
+  const applySession = (nextToken, nextUser) => {
+    setToken(nextToken);
+    if (nextUser) setUser(nextUser);
+  };
+
   const openAuthModal = (tab = 'login') => {
     setAuthTab(tab);
+    setForgotStage('');
+    setAuthError('');
+    setAuthSuccess('');
     setShowAuthModal(true);
   };
 
@@ -486,20 +522,181 @@ export function useAuth({ onLogout } = {}) {
     }
   };
 
-  // Profile: Update Artisan Profile
+  // Profile: Update Artisan Profile (re-enters admin moderation on every save)
   const handleArtisanProfileSave = async (e) => {
     e.preventDefault();
+    setAccountError('');
+    setAccountMessage('');
     try {
       const res = await authFetch('/artisan/profile', { token, method: 'POST', body: profileForm });
       const data = await res.json();
-      if (res.ok) {
-        alert('Profile saved successfully.');
-        fetchUserProfile();
-      } else {
-        alert(data.message || 'Failed to update profile.');
+      if (!res.ok) {
+        setAccountError(data.message || 'Failed to update listing.');
+        return;
       }
+      setArtisanListingStatus(data.contactStatus || 'pending');
+      setAccountMessage(data.message || 'Listing saved.');
+      await refreshUser();
     } catch (err) {
       console.error(err);
+      setAccountError('Connection error while saving listing.');
+    }
+  };
+
+  // Account: name + client profile fields
+  const handleAccountProfileSave = async (e) => {
+    e.preventDefault();
+    setAccountError('');
+    setAccountMessage('');
+    setAccountBusy(true);
+    try {
+      const body = { name: accountForm.name };
+      if (user?.role === 'client') {
+        body.clientProfile = { type: accountForm.clientType, plannedUse: accountForm.plannedUse };
+      }
+      const res = await authFetch('/auth/profile', { token, method: 'PUT', body });
+      const data = await res.json();
+      if (!res.ok) {
+        setAccountError(data.message || 'Could not save profile.');
+        return;
+      }
+      setAccountMessage('Profile details saved.');
+      await refreshUser();
+    } catch (err) {
+      console.error(err);
+      setAccountError('Connection error while saving profile.');
+    } finally {
+      setAccountBusy(false);
+    }
+  };
+
+  // Account: change password while signed in
+  const handleChangePassword = async (e) => {
+    e.preventDefault();
+    setAccountError('');
+    setAccountMessage('');
+
+    if (passwordForm.newPassword !== passwordForm.confirmPassword) {
+      setAccountError('New password and confirmation do not match.');
+      return;
+    }
+    if (passwordForm.newPassword.length < 8) {
+      setAccountError('New password must be at least 8 characters.');
+      return;
+    }
+
+    setAccountBusy(true);
+    try {
+      const res = await authFetch('/auth/change-password', {
+        token,
+        method: 'POST',
+        body: {
+          currentPassword: passwordForm.currentPassword,
+          newPassword: passwordForm.newPassword
+        }
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setAccountError(data.message || 'Could not change password.');
+        return;
+      }
+      setPasswordForm({ currentPassword: '', newPassword: '', confirmPassword: '' });
+      setAccountMessage('Password changed successfully.');
+    } catch (err) {
+      console.error(err);
+      setAccountError('Connection error while changing password.');
+    } finally {
+      setAccountBusy(false);
+    }
+  };
+
+  // Account: soft delete, then drop the local session
+  const handleDeleteAccount = async () => {
+    if (!confirm('Delete your Scoutify account? Your listings and boards stop being visible immediately.')) return;
+    setAccountError('');
+    setAccountMessage('');
+    setAccountBusy(true);
+    try {
+      const res = await authFetch('/auth/account', { token, method: 'DELETE' });
+      const data = await res.json();
+      if (!res.ok) {
+        setAccountError(data.message || 'Could not delete account.');
+        return;
+      }
+      handleLogout();
+      alert(data.message || 'Account deleted.');
+    } catch (err) {
+      console.error(err);
+      setAccountError('Connection error while deleting account.');
+    } finally {
+      setAccountBusy(false);
+    }
+  };
+
+  // Forgot password: request the reset code (logged to the backend console in dev)
+  const openForgotPassword = () => {
+    setForgotStage('request');
+    setForgotEmail(loginEmail);
+    setForgotOtp('');
+    setForgotNewPassword('');
+    setAuthError('');
+    setAuthSuccess('');
+    setDevOtp('');
+  };
+
+  const cancelForgotPassword = () => {
+    setForgotStage('');
+    setAuthError('');
+    setAuthSuccess('');
+    setDevOtp('');
+  };
+
+  const handleForgotPassword = async (e) => {
+    e.preventDefault();
+    setAuthError('');
+    setAuthSuccess('');
+    try {
+      const res = await authFetch('/auth/forgot-password', {
+        method: 'POST',
+        body: { email: forgotEmail }
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setAuthError(data.message || 'Could not start password reset.');
+        return;
+      }
+      setForgotStage('reset');
+      setAuthSuccess(data.message);
+      setDevOtp('Development: the 6-digit reset code is printed in the backend server console.');
+    } catch (err) {
+      setAuthError('Connection error.');
+    }
+  };
+
+  const handleResetPassword = async (e) => {
+    e.preventDefault();
+    setAuthError('');
+    setAuthSuccess('');
+    try {
+      const res = await authFetch('/auth/reset-password', {
+        method: 'POST',
+        body: { email: forgotEmail, otp: forgotOtp, newPassword: forgotNewPassword }
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setAuthError(data.message || 'Could not reset password.');
+        return;
+      }
+      setForgotStage('');
+      setDevOtp('');
+      setAuthTab('login');
+      setLoginEmail(forgotEmail);
+      setLoginPassword('');
+      setForgotOtp('');
+      setForgotNewPassword('');
+      setAuthSuccess(data.message);
+    } catch (err) {
+      setAuthError('Connection error.');
     }
   };
 
@@ -587,6 +784,8 @@ export function useAuth({ onLogout } = {}) {
     setUser,
     token,
     handleLogout,
+    refreshUser,
+    applySession,
 
     // Modal shell
     showAuthModal,
@@ -611,6 +810,19 @@ export function useAuth({ onLogout } = {}) {
     setVerificationCode,
     verifyingOtp,
     verifying2Fa,
+
+    // Forgot / reset password
+    forgotStage,
+    forgotEmail,
+    setForgotEmail,
+    forgotOtp,
+    setForgotOtp,
+    forgotNewPassword,
+    setForgotNewPassword,
+    openForgotPassword,
+    cancelForgotPassword,
+    handleForgotPassword,
+    handleResetPassword,
 
     // Client registration fields
     clientName,
@@ -657,6 +869,19 @@ export function useAuth({ onLogout } = {}) {
     newPortfolioLink,
     setNewPortfolioLink,
     handleArtisanProfileSave,
+    artisanListingStatus,
+
+    // Account settings
+    accountForm,
+    setAccountForm,
+    passwordForm,
+    setPasswordForm,
+    accountMessage,
+    accountError,
+    accountBusy,
+    handleAccountProfileSave,
+    handleChangePassword,
+    handleDeleteAccount,
 
     // Authenticator (TOTP)
     totpQr,

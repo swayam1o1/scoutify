@@ -4,6 +4,7 @@ const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 const Artisan = require('../models/Artisan');
 const { sanitizeArtisans } = require('../utils/sanitizeArtisan');
+const { PUBLIC_STATUS_FILTER } = require('../constants/artisan');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'supersecretscoutifykey12345';
 
@@ -11,9 +12,8 @@ router.get('/', async (req, res) => {
   try {
     const { service, location } = req.query;
 
-    // Build query
-    let query = {};
-    const conditions = [];
+    // Build query — only admin-approved (or legacy verified) vendors are public.
+    const conditions = [PUBLIC_STATUS_FILTER];
 
     if (service) {
       conditions.push({ specialization: { $regex: service.trim(), $options: 'i' } });
@@ -22,9 +22,7 @@ router.get('/', async (req, res) => {
       conditions.push({ city: { $regex: location.trim(), $options: 'i' } });
     }
 
-    if (conditions.length > 0) {
-      query = { $and: conditions };
-    }
+    const query = { $and: conditions };
 
     // Determine user subscription plan from auth header
     let userPlan = 'basic';

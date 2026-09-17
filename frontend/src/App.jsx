@@ -1,10 +1,11 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import './App.css';
 
 import { useAuth } from './hooks/useAuth';
 import { useSearch } from './hooks/useSearch';
 import { useBoards } from './hooks/useBoards';
 import { usePayments } from './hooks/usePayments';
+import { useAdmin } from './hooks/useAdmin';
 
 import { Navbar } from './components/layout/Navbar';
 import { DemoHud } from './components/layout/DemoHud';
@@ -15,14 +16,30 @@ import { BoardsView } from './components/boards/BoardsView';
 import { BoardDetailsView } from './components/boards/BoardDetailsView';
 import { AuthModal } from './components/auth/AuthModal';
 import { PaymentModal } from './components/payments/PaymentModal';
+import { AdminView } from './components/admin/AdminView';
+import { syncUrlForView, viewFromPath } from './utils/navigation';
 
 function App() {
-  // Navigation / Views
-  const [currentView, setCurrentView] = useState('search'); // 'search' | 'dashboard' | 'pricing' | 'boards' | 'board-details'
-  const [isHudCollapsed, setIsHudCollapsed] = useState(false);
+  // Navigation / Views. /admin is the staff entry (not #admin).
+  const [currentView, setCurrentView] = useState(() => viewFromPath() || 'search');
+  const [isHudCollapsed, setIsHudCollapsed] = useState(true);
+
+  const navigate = (view) => {
+    setCurrentView(view);
+    syncUrlForView(view);
+  };
+
+  useEffect(() => {
+    const onPopState = () => {
+      const fromPath = viewFromPath();
+      setCurrentView(fromPath || 'search');
+    };
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
+  }, []);
 
   const auth = useAuth({
-    onLogout: () => setCurrentView('search')
+    onLogout: () => navigate('search')
   });
 
   const search = useSearch({
@@ -39,16 +56,23 @@ function App() {
     user: auth.user,
     setUser: auth.setUser,
     onRequireAuth: auth.openAuthModal,
-    onUpgraded: () => setCurrentView('search')
+    onUpgraded: () => navigate('search')
+  });
+
+  const admin = useAdmin({
+    token: auth.token,
+    user: auth.user,
+    applySession: auth.applySession
   });
 
   const handleLogout = () => {
     auth.handleLogout();
     search.resetSearch?.();
-    setCurrentView('search');
+    navigate('search');
   };
 
   const { user } = auth;
+  const isAdminUser = user?.role === 'admin';
   const activeBoard = boards.boards.find(b => b._id === boards.activeBoardId);
 
   return (
@@ -56,9 +80,9 @@ function App() {
       <Navbar
         currentView={currentView}
         user={user}
-        onNavigate={setCurrentView}
+        onNavigate={navigate}
         onOpenBoards={() => {
-          setCurrentView('boards');
+          navigate('boards');
           boards.setActiveBoardId(null);
         }}
         onSignIn={auth.openAuthModal}
@@ -72,18 +96,22 @@ function App() {
             boards={boards}
             user={user}
             onRequireAuth={auth.openAuthModal}
-            onNavigate={setCurrentView}
+            onNavigate={navigate}
           />
         )}
 
         {currentView === 'pricing' && (
           <PricingView
-            onStartFreeSearch={() => setCurrentView('search')}
+            onStartFreeSearch={() => navigate('search')}
             onUpgradeClick={payments.handleUpgradeClick}
           />
         )}
 
-        {currentView === 'dashboard' && user && (
+        {(currentView === 'admin' || (currentView === 'dashboard' && isAdminUser)) && (
+          <AdminView admin={admin} />
+        )}
+
+        {currentView === 'dashboard' && user && !isAdminUser && (
           <DashboardView user={user} auth={auth} boards={boards} />
         )}
 
@@ -92,7 +120,7 @@ function App() {
             boards={boards}
             onOpenBoard={(boardId) => {
               boards.setActiveBoardId(boardId);
-              setCurrentView('board-details');
+              navigate('board-details');
             }}
           />
         )}
@@ -104,12 +132,12 @@ function App() {
               boards={boards}
               user={user}
               onBack={() => {
-                setCurrentView('boards');
+                navigate('boards');
                 boards.setActiveBoardId(null);
               }}
               onDeleteBoard={(boardId) => {
                 boards.deleteBoard(boardId);
-                setCurrentView('boards');
+                navigate('boards');
               }}
             />
           ) : (

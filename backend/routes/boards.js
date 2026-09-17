@@ -1,11 +1,10 @@
 const express = require('express');
 const router = express.Router();
-const jwt = require('jsonwebtoken');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const User = require('../models/User');
 const Artisan = require('../models/Artisan');
-
-const JWT_SECRET = process.env.JWT_SECRET || 'supersecretscoutifykey12345';
+const { requireAuth, requireRole } = require('../middleware/auth');
+const { PUBLIC_STATUS_FILTER } = require('../constants/artisan');
 
 // Try initializing Gemini if key is provided
 let genAI = null;
@@ -13,25 +12,13 @@ if (process.env.GEMINI_API_KEY) {
   genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 }
 
-// Auth middleware for boards
-const authenticateToken = (req, res, next) => {
-  const authHeader = req.headers.authorization;
-  if (!authHeader) return res.status(401).json({ message: 'No token provided.' });
-
-  const token = authHeader.split(' ')[1];
-  try {
-    const decoded = jwt.verify(token, JWT_SECRET);
-    req.userId = decoded.id;
-    next();
-  } catch (err) {
-    return res.status(403).json({ message: 'Invalid or expired token.' });
-  }
-};
+// Sourcing boards belong to client accounts only.
+router.use(requireAuth, requireRole('client'));
 
 // 1. Get all boards for the logged in user
-router.get('/', authenticateToken, async (req, res) => {
+router.get('/', async (req, res) => {
   try {
-    const user = await User.findById(req.userId).populate('boards.vendors');
+    const user = await User.findById(req.user._id).populate('boards.vendors');
     if (!user) return res.status(404).json({ message: 'User not found.' });
     res.json({ boards: user.boards || [] });
   } catch (err) {
@@ -41,14 +28,14 @@ router.get('/', authenticateToken, async (req, res) => {
 });
 
 // 2. Create a new board
-router.post('/', authenticateToken, async (req, res) => {
+router.post('/', async (req, res) => {
   try {
     const { name } = req.body;
     if (!name || !name.trim()) {
       return res.status(400).json({ message: 'Board name is required.' });
     }
 
-    const user = await User.findById(req.userId);
+    const user = await User.findById(req.user._id);
     if (!user) return res.status(404).json({ message: 'User not found.' });
 
     // Check if board name already exists
@@ -61,7 +48,7 @@ router.post('/', authenticateToken, async (req, res) => {
     await user.save();
 
     // Return populated boards so frontend has full vendor objects
-    const populated = await User.findById(req.userId).populate('boards.vendors');
+    const populated = await User.findById(req.user._id).populate('boards.vendors');
     res.status(201).json({ message: 'Project board created successfully.', boards: populated.boards });
   } catch (err) {
     console.error(err);
@@ -70,7 +57,7 @@ router.post('/', authenticateToken, async (req, res) => {
 });
 
 // 3. Add a vendor to a board
-router.post('/:boardId/vendors', authenticateToken, async (req, res) => {
+router.post('/:boardId/vendors', async (req, res) => {
   try {
     const { vendorId } = req.body;
     if (!vendorId) return res.status(400).json({ message: 'Vendor ID is required.' });
@@ -78,7 +65,7 @@ router.post('/:boardId/vendors', authenticateToken, async (req, res) => {
     const artisan = await Artisan.findById(vendorId);
     if (!artisan) return res.status(404).json({ message: 'Artisan not found.' });
 
-    const user = await User.findById(req.userId);
+    const user = await User.findById(req.user._id);
     if (!user) return res.status(404).json({ message: 'User not found.' });
 
     const board = user.boards.id(req.params.boardId);
@@ -93,7 +80,7 @@ router.post('/:boardId/vendors', authenticateToken, async (req, res) => {
     await user.save();
 
     // Return populated boards so frontend has full vendor objects
-    const populated = await User.findById(req.userId).populate('boards.vendors');
+    const populated = await User.findById(req.user._id).populate('boards.vendors');
     res.json({ message: 'Artisan saved to project board.', boards: populated.boards });
   } catch (err) {
     console.error(err);
@@ -102,9 +89,9 @@ router.post('/:boardId/vendors', authenticateToken, async (req, res) => {
 });
 
 // 4. Remove a vendor from a board
-router.delete('/:boardId/vendors/:vendorId', authenticateToken, async (req, res) => {
+router.delete('/:boardId/vendors/:vendorId', async (req, res) => {
   try {
-    const user = await User.findById(req.userId);
+    const user = await User.findById(req.user._id);
     if (!user) return res.status(404).json({ message: 'User not found.' });
 
     const board = user.boards.id(req.params.boardId);
@@ -114,7 +101,7 @@ router.delete('/:boardId/vendors/:vendorId', authenticateToken, async (req, res)
     await user.save();
 
     // Populate vendors before returning updated boards to sync frontend state correctly
-    const populatedUser = await User.findById(req.userId).populate('boards.vendors');
+    const populatedUser = await User.findById(req.user._id).populate('boards.vendors');
 
     res.json({ message: 'Artisan removed from board.', boards: populatedUser.boards });
   } catch (err) {
@@ -124,16 +111,16 @@ router.delete('/:boardId/vendors/:vendorId', authenticateToken, async (req, res)
 });
 
 // 5. Delete a board
-router.delete('/:boardId', authenticateToken, async (req, res) => {
+router.delete('/:boardId', async (req, res) => {
   try {
-    const user = await User.findById(req.userId);
+    const user = await User.findById(req.user._id);
     if (!user) return res.status(404).json({ message: 'User not found.' });
 
     user.boards = user.boards.filter(b => b._id.toString() !== req.params.boardId);
     await user.save();
 
     // Return populated boards so frontend has full vendor objects
-    const populated = await User.findById(req.userId).populate('boards.vendors');
+    const populated = await User.findById(req.user._id).populate('boards.vendors');
     res.json({ message: 'Project board deleted.', boards: populated.boards });
   } catch (err) {
     console.error(err);
@@ -142,9 +129,9 @@ router.delete('/:boardId', authenticateToken, async (req, res) => {
 });
 
 // 6. Get board suggestions/recommendations via Gemini
-router.get('/:boardId/recommendations', authenticateToken, async (req, res) => {
+router.get('/:boardId/recommendations', async (req, res) => {
   try {
-    const user = await User.findById(req.userId);
+    const user = await User.findById(req.user._id);
     if (!user) return res.status(404).json({ message: 'User not found.' });
 
     const board = user.boards.id(req.params.boardId);
@@ -161,7 +148,10 @@ router.get('/:boardId/recommendations', authenticateToken, async (req, res) => {
 
     // Default simulation recommendations if board is empty
     if (savedVendors.length === 0) {
-      const recommendations = await Artisan.find({ specialization: { $regex: 'Architectural', $options: 'i' } }).limit(2);
+      const recommendations = await Artisan.find({
+        ...PUBLIC_STATUS_FILTER,
+        specialization: { $regex: 'Architectural', $options: 'i' }
+      }).limit(2);
       return res.json({
         rationale: "This board is empty. We recommend starting with verified local Architectural planners to layout your project design parameters.",
         recommendations,
@@ -212,11 +202,14 @@ Return the response ONLY as a JSON object, e.g. { "rationale": "Since you have..
             ]
           }));
 
-          let recommendations = await Artisan.find({ $or: queryConditions }).limit(4);
+          let recommendations = await Artisan.find({ ...PUBLIC_STATUS_FILTER, $or: queryConditions }).limit(4);
           
           if (recommendations.length === 0) {
             const fallbackSpecs = parsed.suggestions.map(s => s.specialization);
-            recommendations = await Artisan.find({ specialization: { $in: fallbackSpecs } }).limit(2);
+            recommendations = await Artisan.find({
+              ...PUBLIC_STATUS_FILTER,
+              specialization: { $in: fallbackSpecs }
+            }).limit(2);
           }
 
           // Filter out vendors already on the board
@@ -252,13 +245,14 @@ Return the response ONLY as a JSON object, e.g. { "rationale": "Since you have..
 
     let recommendations = await Artisan.find({
       $and: [
+        PUBLIC_STATUS_FILTER,
         { specialization: { $regex: recommendedSpec, $options: 'i' } },
         { city: { $regex: primaryCity, $options: 'i' } }
       ]
     }).limit(2);
 
     if (recommendations.length === 0) {
-      recommendations = await Artisan.find({ city: primaryCity }).limit(2);
+      recommendations = await Artisan.find({ ...PUBLIC_STATUS_FILTER, city: primaryCity }).limit(2);
     }
 
     // Filter out already saved

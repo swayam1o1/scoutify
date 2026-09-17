@@ -1,4 +1,4 @@
-import { Lock, Mail, MapPin, Phone, User as UserIcon } from 'lucide-react';
+import { Globe, Lock, Mail, MapPin, Phone, User as UserIcon } from 'lucide-react';
 import { Instagram } from '../../icons/Instagram';
 
 export function ArtisanCard({
@@ -36,7 +36,7 @@ export function ArtisanCard({
       <div className="artisan-info">
         <div className="artisan-info-item">
           <MapPin size={14} />
-          <span>{artisan.city}</span>
+          <span>{artisan.city}{artisan.serviceArea ? ` · serves ${artisan.serviceArea}` : ''}</span>
         </div>
         {artisan.description && (
           <p style={{ fontSize: '13px', color: 'var(--color-text-secondary)', margin: '8px 0 0', lineHeight: 1.4 }}>
@@ -63,6 +63,14 @@ export function ArtisanCard({
               <div className="artisan-info-item">
                 <Instagram size={14} />
                 <span>{artisan.instagram}</span>
+              </div>
+            )}
+            {artisan.website && (
+              <div className="artisan-info-item">
+                <Globe size={14} />
+                <a href={artisan.website} target="_blank" rel="noopener noreferrer" style={{ fontSize: '13px', color: 'var(--color-primary)', wordBreak: 'break-all' }}>
+                  {artisan.website}
+                </a>
               </div>
             )}
           </>

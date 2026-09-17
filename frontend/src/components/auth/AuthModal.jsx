@@ -48,8 +48,39 @@ export function AuthModal({ auth }) {
     artisanCity,
     setArtisanCity,
     artisanSpecialization,
-    setArtisanSpecialization
+    setArtisanSpecialization,
+    forgotStage,
+    forgotEmail,
+    setForgotEmail,
+    forgotOtp,
+    setForgotOtp,
+    forgotNewPassword,
+    setForgotNewPassword,
+    openForgotPassword,
+    cancelForgotPassword,
+    handleForgotPassword,
+    handleResetPassword
   } = auth;
+
+  const showMainForms = !verifyingOtp && !verifying2Fa && !forgotStage;
+
+  const heading = verifyingOtp
+    ? 'Account Verification'
+    : verifying2Fa
+      ? 'Two-Factor Login'
+      : forgotStage
+        ? 'Reset Password'
+        : authTab === 'login' ? 'Welcome Back' : 'Get Started';
+
+  const subheading = verifyingOtp
+    ? 'Enter verification code'
+    : verifying2Fa
+      ? 'Use Google Authenticator'
+      : forgotStage === 'request'
+        ? 'We will send a 6-digit reset code to your email.'
+        : forgotStage === 'reset'
+          ? 'Enter the reset code and choose a new password.'
+          : 'Unlock direct connections with verified artisans.';
 
   return (
     <div className="modal-overlay">
@@ -58,12 +89,8 @@ export function AuthModal({ auth }) {
 
         {/* Header */}
         <div style={{ textAlign: 'center', marginBottom: '24px' }}>
-          <h2 style={{ fontSize: '24px', marginBottom: '6px' }}>
-            {verifyingOtp ? 'Account Verification' : verifying2Fa ? 'Two-Factor Login' : authTab === 'login' ? 'Welcome Back' : 'Get Started'}
-          </h2>
-          <p style={{ color: 'var(--color-text-secondary)', fontSize: '14px' }}>
-            {verifyingOtp ? 'Enter verification code' : verifying2Fa ? 'Use Google Authenticator' : 'Unlock direct connections with verified artisans.'}
-          </p>
+          <h2 style={{ fontSize: '24px', marginBottom: '6px' }}>{heading}</h2>
+          <p style={{ color: 'var(--color-text-secondary)', fontSize: '14px' }}>{subheading}</p>
         </div>
 
         {/* Error alerts */}
@@ -128,7 +155,65 @@ export function AuthModal({ auth }) {
           </form>
         )}
 
-        {!verifyingOtp && !verifying2Fa && (
+        {forgotStage === 'request' && (
+          <form onSubmit={handleForgotPassword}>
+            <div className="form-group">
+              <label className="form-label">Account Email</label>
+              <input
+                type="email"
+                className="form-control"
+                placeholder="you@studio.com"
+                value={forgotEmail}
+                onChange={e => setForgotEmail(e.target.value)}
+                required
+              />
+            </div>
+            <button type="submit" className="btn btn-primary" style={{ width: '100%' }}>
+              Send Reset Code
+            </button>
+            <button type="button" className="btn btn-outline" style={{ width: '100%', marginTop: '10px' }} onClick={cancelForgotPassword}>
+              Back to Sign In
+            </button>
+          </form>
+        )}
+
+        {forgotStage === 'reset' && (
+          <form onSubmit={handleResetPassword}>
+            <div className="form-group">
+              <label className="form-label">6-digit Reset Code</label>
+              <input
+                type="text"
+                className="form-control"
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                placeholder="Enter code"
+                value={forgotOtp}
+                onChange={e => setForgotOtp(e.target.value)}
+                required
+              />
+            </div>
+            <div className="form-group">
+              <label className="form-label">New Password</label>
+              <input
+                type="password"
+                className="form-control"
+                autoComplete="new-password"
+                placeholder="At least 8 characters"
+                value={forgotNewPassword}
+                onChange={e => setForgotNewPassword(e.target.value)}
+                required
+              />
+            </div>
+            <button type="submit" className="btn btn-primary" style={{ width: '100%' }}>
+              Set New Password
+            </button>
+            <button type="button" className="btn btn-outline" style={{ width: '100%', marginTop: '10px' }} onClick={cancelForgotPassword}>
+              Back to Sign In
+            </button>
+          </form>
+        )}
+
+        {showMainForms && (
           <>
             {/* Simulated Google Button */}
             <button className="btn btn-google" onClick={handleGoogleLogin}>
@@ -188,6 +273,12 @@ export function AuthModal({ auth }) {
                       onChange={e => setLoginPassword(e.target.value)}
                       required
                     />
+                    <span
+                      style={{ color: 'var(--color-primary)', cursor: 'pointer', fontSize: '13px' }}
+                      onClick={openForgotPassword}
+                    >
+                      Forgot password?
+                    </span>
                   </div>
                 </>
               ) : authRole === 'client' ? (

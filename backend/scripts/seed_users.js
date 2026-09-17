@@ -7,7 +7,8 @@ const MONGO_URI = process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/scoutify';
 const users = [
   { name: 'Demo Client', email: 'client@example.com', password: 'ClientPass123!', role: 'client', subscriptionPlan: 'basic' },
   { name: 'Demo Pro Client', email: 'pro@example.com', password: 'ProPass123!', role: 'client', subscriptionPlan: 'pro' },
-  { name: 'Demo Artisan', email: 'artisan@example.com', password: 'ArtisanPass123!', role: 'artisan', subscriptionPlan: 'basic' }
+  { name: 'Demo Artisan', email: 'artisan@example.com', password: 'ArtisanPass123!', role: 'artisan', subscriptionPlan: 'basic' },
+  { name: 'Scoutify Admin', email: 'admin@example.com', password: 'AdminPass123!', role: 'admin', subscriptionPlan: 'basic' }
 ];
 
 async function run() {
@@ -16,10 +17,21 @@ async function run() {
     const passwordHash = await bcrypt.hash(entry.password, 10);
     await User.updateOne(
       { email: entry.email },
-      { $set: { name: entry.name, passwordHash, role: entry.role, subscriptionPlan: entry.subscriptionPlan, isVerified: true } },
+      {
+        $set: {
+          name: entry.name,
+          passwordHash,
+          role: entry.role,
+          subscriptionPlan: entry.subscriptionPlan,
+          isVerified: true,
+          isSuspended: false,
+          isDeleted: false
+        },
+        $unset: { deletedAt: '' }
+      },
       { upsert: true }
     );
-    console.log(`${entry.email} / ${entry.password}`);
+    console.log(`${entry.email} / ${entry.password} (${entry.role})`);
   }
 }
 

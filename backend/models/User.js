@@ -13,6 +13,11 @@ const UserSchema = new mongoose.Schema({
   searchCount: { type: Number, default: 0 },
   twoFactorSecret: { type: String },
   twoFactorEnabled: { type: Boolean, default: false },
+  passwordResetOtp: { type: String },
+  passwordResetExpires: { type: Date },
+  isSuspended: { type: Boolean, default: false },
+  isDeleted: { type: Boolean, default: false },
+  deletedAt: { type: Date },
   clientProfile: {
     type: { type: String }, // interior designer, firm, hobbyist, student, etc.
     plannedUse: { type: String }
@@ -20,10 +25,16 @@ const UserSchema = new mongoose.Schema({
   artisanProfile: {
     companyName: { type: String },
     phoneNumber: { type: String },
+    email: { type: String },
     instagram: { type: String },
     city: { type: String },
     personOfContact: { type: String },
+    website: { type: String },
+    serviceArea: { type: String },
+    description: { type: String },
     specialization: [{ type: String }],
+    products: [{ type: String }],
+    customTags: [{ type: String }],
     portfolio: [{ type: String }] // Links or uploaded portfolio items
   },
   boards: [{

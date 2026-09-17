@@ -5,12 +5,20 @@ const jwt = require('jsonwebtoken');
 const speakeasy = require('speakeasy');
 const QRCode = require('qrcode');
 const User = require('../models/User');
+const Artisan = require('../models/Artisan');
+const { requireAuth } = require('../middleware/auth');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'supersecretscoutifykey12345';
 const TOTP_ISSUER = process.env.TOTP_ISSUER || 'Scoutify';
 
 function generateOTP() {
   return Math.floor(100000 + Math.random() * 900000).toString();
+}
+
+function logDevOtp(label, email, otp) {
+  console.log(`\n==========================================`);
+  console.log(`[DEV OTP] ${label} for ${email}: ${otp}`);
+  console.log(`==========================================\n`);
 }
 
 function publicUser(user) {
@@ -20,8 +28,25 @@ function publicUser(user) {
     email: user.email,
     role: user.role,
     subscriptionPlan: user.subscriptionPlan,
-    twoFactorEnabled: user.twoFactorEnabled
+    twoFactorEnabled: user.twoFactorEnabled,
+    isVerified: user.isVerified,
+    isSuspended: user.isSuspended,
+    clientProfile: user.clientProfile,
+    artisanProfile: user.artisanProfile
   };
+}
+
+// Returns a 403/400 payload when an account may no longer sign in.
+function blockedAccountResponse(user, res) {
+  if (user.isDeleted) {
+    res.status(403).json({ message: 'This account has been deleted. Contact Scoutify support to restore it.' });
+    return true;
+  }
+  if (user.isSuspended) {
+    res.status(403).json({ message: 'This account is suspended. Contact Scoutify support.' });
+    return true;
+  }
+  return false;
 }
 
 function verifyTotp(secret, code) {
@@ -93,9 +118,7 @@ router.post('/register', async (req, res) => {
     await user.save();
 
     // Log to console for development verification
-    console.log(`\n==========================================`);
-    console.log(`[DEV OTP] Verification OTP for ${email}: ${otp}`);
-    console.log(`==========================================\n`);
+    logDevOtp('Verification OTP', email, otp);
 
     res.status(201).json({
       message: 'Registration successful. OTP sent.',
@@ -117,6 +140,8 @@ router.post('/verify-otp', async (req, res) => {
     if (!user) {
       return res.status(404).json({ message: 'User not found.' });
     }
+
+    if (blockedAccountResponse(user, res)) return;
 
     if (user.otp !== otp || user.otpExpires < new Date()) {
       return res.status(400).json({ message: 'Invalid or expired OTP.' });
@@ -163,6 +188,8 @@ router.post('/login', async (req, res) => {
       return res.status(400).json({ message: 'Invalid credentials.' });
     }
 
+    if (blockedAccountResponse(user, res)) return;
+
     if (!user.passwordHash) {
       return res.status(400).json({ message: 'Account is linked with Google Sign-In. Use Google to log in.' });
     }
@@ -179,9 +206,7 @@ router.post('/login', async (req, res) => {
       user.otpExpires = new Date(Date.now() + 10 * 60 * 1000);
       await user.save();
 
-      console.log(`\n==========================================`);
-      console.log(`[DEV OTP] Verification OTP for ${email}: ${otp}`);
-      console.log(`==========================================\n`);
+      logDevOtp('Verification OTP', email, otp);
 
       return res.status(403).json({
         message: 'Account not verified. OTP sent.',
@@ -220,6 +245,8 @@ router.post('/verify-2fa', async (req, res) => {
     if (!user || !user.twoFactorEnabled || !user.twoFactorSecret) {
       return res.status(400).json({ message: 'Authenticator login is not enabled for this account.' });
     }
+
+    if (blockedAccountResponse(user, res)) return;
 
     if (!verifyTotp(user.twoFactorSecret, code)) {
       return res.status(400).json({ message: 'Invalid authenticator code. Try the current 6-digit number.' });
@@ -263,10 +290,13 @@ router.post('/google-login', async (req, res) => {
         isVerified: true // Google Sign-in accounts are verified automatically
       });
       await user.save();
-    } else if (!user.googleId) {
-      // Link Google Account
-      user.googleId = googleId;
-      await user.save();
+    } else {
+      if (blockedAccountResponse(user, res)) return;
+      if (!user.googleId) {
+        // Link Google Account
+        user.googleId = googleId;
+        await user.save();
+      }
     }
 
     if (user.twoFactorEnabled && user.twoFactorSecret) {
@@ -451,6 +481,194 @@ router.post('/demo-login', async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: 'Server error during demo login.' });
+  }
+});
+
+// 8. CURRENT USER
+router.get('/me', requireAuth, async (req, res) => {
+  try {
+    const user = req.user;
+    const payload = {
+      ...publicUser(user),
+      createdAt: user.createdAt
+    };
+
+    // Artisans need their public listing state to know if they are searchable yet.
+    if (user.role === 'artisan') {
+      const listing = await Artisan.findOne({ userId: user._id }).select('contactStatus updatedAt');
+      payload.artisanListing = listing
+        ? { id: listing._id, contactStatus: listing.contactStatus, updatedAt: listing.updatedAt }
+        : null;
+    }
+
+    res.json({ user: payload });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Server error loading account.' });
+  }
+});
+
+// 9. UPDATE OWN PROFILE (name + role specific profile)
+router.put('/profile', requireAuth, async (req, res) => {
+  try {
+    const user = req.user;
+    const { name, clientProfile, artisanProfile } = req.body;
+
+    if (name !== undefined) {
+      if (!String(name).trim()) {
+        return res.status(400).json({ message: 'Name cannot be empty.' });
+      }
+      user.name = String(name).trim();
+    }
+
+    if (user.role === 'client' && clientProfile) {
+      user.clientProfile = {
+        type: clientProfile.type ?? user.clientProfile?.type,
+        plannedUse: clientProfile.plannedUse ?? user.clientProfile?.plannedUse
+      };
+    }
+
+    if (user.role === 'artisan' && artisanProfile) {
+      const existing = user.artisanProfile?.toObject?.() || user.artisanProfile || {};
+      user.artisanProfile = { ...existing, ...artisanProfile };
+    }
+
+    await user.save();
+    res.json({ message: 'Profile updated.', user: publicUser(user) });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Server error updating profile.' });
+  }
+});
+
+// 10. CHANGE PASSWORD
+router.post('/change-password', requireAuth, async (req, res) => {
+  try {
+    const { currentPassword, newPassword } = req.body;
+    const user = req.user;
+
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({ message: 'Current and new password are required.' });
+    }
+    if (newPassword.length < 8) {
+      return res.status(400).json({ message: 'New password must be at least 8 characters.' });
+    }
+    if (!user.passwordHash) {
+      return res.status(400).json({ message: 'This account has no password set. Use “Forgot password” to create one.' });
+    }
+
+    const isMatch = await bcrypt.compare(currentPassword, user.passwordHash);
+    if (!isMatch) {
+      return res.status(400).json({ message: 'Current password is incorrect.' });
+    }
+
+    user.passwordHash = await bcrypt.hash(newPassword, 10);
+    await user.save();
+    res.json({ message: 'Password changed successfully.' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Server error changing password.' });
+  }
+});
+
+// 11. FORGOT PASSWORD (OTP logged to server console in dev)
+router.post('/forgot-password', async (req, res) => {
+  try {
+    const email = req.body.email?.trim().toLowerCase();
+    if (!email) {
+      return res.status(400).json({ message: 'Email is required.' });
+    }
+
+    const user = await User.findOne({ email });
+
+    // Always answer the same way so the endpoint cannot be used to probe emails.
+    const genericResponse = {
+      message: 'If that email is registered, a 6-digit reset code has been sent.',
+      email,
+      otpRequired: true
+    };
+
+    if (!user || user.isDeleted) {
+      return res.json(genericResponse);
+    }
+
+    const otp = generateOTP();
+    user.passwordResetOtp = otp;
+    user.passwordResetExpires = new Date(Date.now() + 10 * 60 * 1000); // 10 mins
+    await user.save();
+
+    logDevOtp('Password reset OTP', email, otp);
+
+    res.json(genericResponse);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Server error starting password reset.' });
+  }
+});
+
+// 12. RESET PASSWORD
+router.post('/reset-password', async (req, res) => {
+  try {
+    const email = req.body.email?.trim().toLowerCase();
+    const { otp, newPassword } = req.body;
+
+    if (!email || !otp || !newPassword) {
+      return res.status(400).json({ message: 'Email, OTP, and new password are required.' });
+    }
+    if (newPassword.length < 8) {
+      return res.status(400).json({ message: 'New password must be at least 8 characters.' });
+    }
+
+    const user = await User.findOne({ email });
+    if (!user || user.isDeleted) {
+      return res.status(400).json({ message: 'Invalid or expired reset code.' });
+    }
+    if (!user.passwordResetOtp || user.passwordResetOtp !== String(otp).trim()) {
+      return res.status(400).json({ message: 'Invalid or expired reset code.' });
+    }
+    if (!user.passwordResetExpires || user.passwordResetExpires < new Date()) {
+      return res.status(400).json({ message: 'Invalid or expired reset code.' });
+    }
+
+    user.passwordHash = await bcrypt.hash(newPassword, 10);
+    user.passwordResetOtp = undefined;
+    user.passwordResetExpires = undefined;
+    await user.save();
+
+    res.json({ message: 'Password reset successfully. You can now sign in.' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Server error resetting password.' });
+  }
+});
+
+// 13. DELETE OWN ACCOUNT (soft delete)
+router.delete('/account', requireAuth, async (req, res) => {
+  try {
+    const user = req.user;
+    if (user.role === 'admin') {
+      return res.status(403).json({ message: 'Admin accounts cannot be self-deleted.' });
+    }
+
+    user.isDeleted = true;
+    user.deletedAt = new Date();
+    user.otp = undefined;
+    user.otpExpires = undefined;
+    user.passwordResetOtp = undefined;
+    user.passwordResetExpires = undefined;
+    user.twoFactorEnabled = false;
+    user.twoFactorSecret = undefined;
+    await user.save();
+
+    // Pull the vendor listing out of public search straight away.
+    if (user.role === 'artisan') {
+      await Artisan.updateOne({ userId: user._id }, { $set: { contactStatus: 'rejected' } });
+    }
+
+    res.json({ message: 'Account deleted. Existing sessions are now invalid.' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Server error deleting account.' });
   }
 });
 

@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const { CONTACT_STATUSES } = require('../constants/artisan');
 
 const ArtisanSchema = new mongoose.Schema({
   companyName: { type: String, required: true },
@@ -7,8 +8,12 @@ const ArtisanSchema = new mongoose.Schema({
   instagram: { type: String },
   city: { type: String },
   personOfContact: { type: String },
-  contactStatus: { type: String, default: 'verified' },
+  website: { type: String },
+  serviceArea: { type: String },
+  contactStatus: { type: String, enum: CONTACT_STATUSES, default: 'pending' },
   specialization: [{ type: String }],
+  products: [{ type: String }],
+  customTags: [{ type: String }],
   portfolio: [{ type: String }],
   description: { type: String, default: '' },
   searchText: { type: String, default: '' },
