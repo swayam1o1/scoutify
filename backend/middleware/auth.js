@@ -52,7 +52,20 @@ function requireRole(...roles) {
   };
 }
 
-const requireAdmin = requireRole('admin');
+// Admins must have Google Authenticator enabled before using admin APIs (SRS 3.2).
+function requireAdmin(req, res, next) {
+  if (!req.user) return res.status(401).json({ message: 'No token provided.' });
+  if (req.user.role !== 'admin') {
+    return res.status(403).json({ message: 'Access denied. Admin role required.' });
+  }
+  if (!req.user.twoFactorEnabled) {
+    return res.status(403).json({
+      message: 'Administrators must enable Google Authenticator before using admin tools.',
+      code: 'ADMIN_2FA_REQUIRED'
+    });
+  }
+  next();
+}
 
 module.exports = {
   JWT_SECRET,

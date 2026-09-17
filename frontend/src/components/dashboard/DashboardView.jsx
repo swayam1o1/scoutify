@@ -1,5 +1,8 @@
 import { Plus, Trash } from 'lucide-react';
 import { useCategories } from '../../hooks/useCategories';
+import { ReauthFields } from '../auth/ReauthFields.jsx';
+
+const FIRM_TYPES = new Set(['architectural_firm', 'design_firm', 'company', 'firm']);
 
 const STATUS_BANNERS = {
   pending: {
@@ -80,30 +83,51 @@ function TwoFactorPanel({ user, auth }) {
     cancelTotpSetup
   } = auth;
 
+  const isAdmin = user.role === 'admin';
+  const mustEnable = !!user.mustEnable2FA;
+
   return (
     <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '14px', marginTop: '10px' }}>
       <h4 style={{ fontSize: '15px', marginBottom: '10px' }}>Google Authenticator (2FA)</h4>
+      {mustEnable && (
+        <div style={{
+          background: 'rgba(250, 204, 21, 0.12)',
+          border: '1px solid rgba(250, 204, 21, 0.35)',
+          color: '#fde68a',
+          padding: '10px 12px',
+          borderRadius: '8px',
+          fontSize: '13px',
+          marginBottom: '12px'
+        }}>
+          Admin accounts require Authenticator before admin tools unlock. Set it up below.
+        </div>
+      )}
       <p style={{ fontSize: '13px', color: 'var(--color-text-secondary)', marginBottom: '12px' }}>
         After password, login needs the 6-digit code from the Google Authenticator app on your phone. No SMS.
+        {isAdmin ? ' Admins cannot turn this off.' : ''}
       </p>
       {user.twoFactorEnabled ? (
-        <form onSubmit={disableTotp}>
-          <label className="form-label">Current app code to disable</label>
-          <input
-            type="text"
-            className="form-control"
-            inputMode="numeric"
-            autoComplete="one-time-code"
-            placeholder="6-digit code"
-            value={totpDisableCode}
-            onChange={e => setTotpDisableCode(e.target.value)}
-            required
-            style={{ marginBottom: '10px' }}
-          />
-          <button type="submit" className="btn btn-outline" disabled={totpBusy} style={{ width: '100%', fontSize: '13px', padding: '8px' }}>
-            Disable Authenticator
-          </button>
-        </form>
+        isAdmin ? (
+          <p style={{ fontSize: '13px', color: '#a7f3d0' }}>Authenticator is enabled (required for admins).</p>
+        ) : (
+          <form onSubmit={disableTotp}>
+            <label className="form-label">Current app code to disable</label>
+            <input
+              type="text"
+              className="form-control"
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              placeholder="6-digit code"
+              value={totpDisableCode}
+              onChange={e => setTotpDisableCode(e.target.value)}
+              required
+              style={{ marginBottom: '10px' }}
+            />
+            <button type="submit" className="btn btn-outline" disabled={totpBusy} style={{ width: '100%', fontSize: '13px', padding: '8px' }}>
+              Disable Authenticator
+            </button>
+          </form>
+        )
       ) : totpQr ? (
         <form onSubmit={confirmTotpEnable}>
           <p style={{ fontSize: '13px', color: 'var(--color-text-secondary)', marginBottom: '10px' }}>
@@ -127,9 +151,11 @@ function TwoFactorPanel({ user, auth }) {
           <button type="submit" className="btn btn-primary" disabled={totpBusy} style={{ width: '100%', fontSize: '13px', padding: '8px', color: '#000', marginBottom: '8px' }}>
             Confirm and enable
           </button>
-          <button type="button" className="btn btn-outline" disabled={totpBusy} style={{ width: '100%', fontSize: '13px', padding: '8px' }} onClick={cancelTotpSetup}>
-            Cancel
-          </button>
+          {!mustEnable && (
+            <button type="button" className="btn btn-outline" disabled={totpBusy} style={{ width: '100%', fontSize: '13px', padding: '8px' }} onClick={cancelTotpSetup}>
+              Cancel
+            </button>
+          )}
         </form>
       ) : (
         <button type="button" className="btn btn-primary" disabled={totpBusy} onClick={startTotpSetup} style={{ width: '100%', fontSize: '13px', padding: '8px', color: '#000' }}>
@@ -140,11 +166,35 @@ function TwoFactorPanel({ user, auth }) {
   );
 }
 
-function AccountSecurityPanel({ auth }) {
-  const { passwordForm, setPasswordForm, accountBusy, handleChangePassword, handleDeleteAccount } = auth;
+function AccountSecurityPanel({ user, auth }) {
+  const {
+    passwordForm,
+    setPasswordForm,
+    reauthForm,
+    setReauthForm,
+    emailChangeForm,
+    setEmailChangeForm,
+    phoneChangeForm,
+    setPhoneChangeForm,
+    emailChangeStage,
+    phoneChangeStage,
+    accountBusy,
+    reauthBusy,
+    handleChangePassword,
+    handleDeleteAccount,
+    requestReauthEmailCode,
+    handleStartEmailChange,
+    handleConfirmEmailChange,
+    handleStartPhoneChange,
+    handleConfirmPhoneChange,
+    accountMessage,
+    accountError
+  } = auth;
 
   return (
     <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '14px', marginTop: '10px' }}>
+      <FormFeedback message={accountMessage} error={accountError} />
+
       <h4 style={{ fontSize: '15px', marginBottom: '10px' }}>Password</h4>
       <form onSubmit={handleChangePassword}>
         <input
@@ -157,6 +207,18 @@ function AccountSecurityPanel({ auth }) {
           required
           style={{ marginBottom: '8px' }}
         />
+        {user.twoFactorEnabled && (
+          <input
+            type="text"
+            className="form-control"
+            inputMode="numeric"
+            placeholder="Authenticator code"
+            value={passwordForm.totpCode || ''}
+            onChange={e => setPasswordForm({ ...passwordForm, totpCode: e.target.value })}
+            required
+            style={{ marginBottom: '8px' }}
+          />
+        )}
         <input
           type="password"
           className="form-control"
@@ -183,20 +245,122 @@ function AccountSecurityPanel({ auth }) {
       </form>
 
       <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '14px', marginTop: '16px' }}>
-        <h4 style={{ fontSize: '15px', marginBottom: '8px' }}>Delete Account</h4>
-        <p style={{ fontSize: '12px', color: 'var(--color-text-secondary)', marginBottom: '10px' }}>
-          Removes your access and hides your data from Scoutify. Support can restore it on request.
-        </p>
-        <button
-          type="button"
-          className="btn btn-outline"
-          disabled={accountBusy}
-          onClick={handleDeleteAccount}
-          style={{ width: '100%', fontSize: '13px', padding: '8px', borderColor: 'var(--color-danger)', color: 'var(--color-danger)' }}
-        >
-          Delete My Account
-        </button>
+        <h4 style={{ fontSize: '15px', marginBottom: '8px' }}>Change Email</h4>
+        {emailChangeStage === 'confirm' ? (
+          <form onSubmit={handleConfirmEmailChange}>
+            <input
+              type="text"
+              className="form-control"
+              inputMode="numeric"
+              placeholder="Code sent to new email"
+              value={emailChangeForm.otp}
+              onChange={e => setEmailChangeForm({ ...emailChangeForm, otp: e.target.value })}
+              required
+              style={{ marginBottom: '10px' }}
+            />
+            <button type="submit" className="btn btn-primary" disabled={accountBusy} style={{ width: '100%', fontSize: '13px', padding: '8px', color: '#000' }}>
+              Confirm Email
+            </button>
+          </form>
+        ) : (
+          <form onSubmit={handleStartEmailChange}>
+            <input
+              type="email"
+              className="form-control"
+              placeholder="New email address"
+              value={emailChangeForm.newEmail}
+              onChange={e => setEmailChangeForm({ ...emailChangeForm, newEmail: e.target.value })}
+              required
+              style={{ marginBottom: '8px' }}
+            />
+            <ReauthFields
+              user={user}
+              values={reauthForm}
+              onChange={setReauthForm}
+              onRequestEmailCode={requestReauthEmailCode}
+              emailCodeBusy={reauthBusy}
+              compact
+            />
+            <button type="submit" className="btn btn-outline" disabled={accountBusy} style={{ width: '100%', fontSize: '13px', padding: '8px' }}>
+              Send confirmation to new email
+            </button>
+          </form>
+        )}
       </div>
+
+      <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '14px', marginTop: '16px' }}>
+        <h4 style={{ fontSize: '15px', marginBottom: '8px' }}>Change Phone</h4>
+        <p style={{ fontSize: '12px', color: 'var(--color-text-secondary)', marginBottom: '8px' }}>
+          Current: {user.phoneNumber || 'Not set'}{user.phoneVerified ? ' (verified)' : ''}
+        </p>
+        {phoneChangeStage === 'confirm' ? (
+          <form onSubmit={handleConfirmPhoneChange}>
+            <input
+              type="text"
+              className="form-control"
+              inputMode="numeric"
+              placeholder="Code sent to new phone"
+              value={phoneChangeForm.otp}
+              onChange={e => setPhoneChangeForm({ ...phoneChangeForm, otp: e.target.value })}
+              required
+              style={{ marginBottom: '10px' }}
+            />
+            <button type="submit" className="btn btn-primary" disabled={accountBusy} style={{ width: '100%', fontSize: '13px', padding: '8px', color: '#000' }}>
+              Confirm Phone
+            </button>
+          </form>
+        ) : (
+          <form onSubmit={handleStartPhoneChange}>
+            <input
+              type="tel"
+              className="form-control"
+              placeholder="New 10-digit phone"
+              value={phoneChangeForm.newPhone}
+              onChange={e => setPhoneChangeForm({ ...phoneChangeForm, newPhone: e.target.value })}
+              required
+              style={{ marginBottom: '8px' }}
+            />
+            <ReauthFields
+              user={user}
+              values={reauthForm}
+              onChange={setReauthForm}
+              onRequestEmailCode={requestReauthEmailCode}
+              emailCodeBusy={reauthBusy}
+              compact
+            />
+            <button type="submit" className="btn btn-outline" disabled={accountBusy} style={{ width: '100%', fontSize: '13px', padding: '8px' }}>
+              Send confirmation to new phone
+            </button>
+          </form>
+        )}
+      </div>
+
+      {user.role !== 'admin' && (
+        <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '14px', marginTop: '16px' }}>
+          <h4 style={{ fontSize: '15px', marginBottom: '8px' }}>Delete Account</h4>
+          <p style={{ fontSize: '12px', color: 'var(--color-text-secondary)', marginBottom: '10px' }}>
+            Removes your access and hides your data from Scoutify. Support can restore it on request.
+          </p>
+          <form onSubmit={handleDeleteAccount}>
+            <ReauthFields
+              user={user}
+              values={reauthForm}
+              onChange={setReauthForm}
+              onRequestEmailCode={requestReauthEmailCode}
+              emailCodeBusy={reauthBusy}
+              compact
+            />
+            <button
+              type="submit"
+              className="btn btn-outline"
+              disabled={accountBusy}
+              style={{ width: '100%', fontSize: '13px', padding: '8px', borderColor: 'var(--color-danger)', color: 'var(--color-danger)' }}
+            >
+              Delete My Account
+            </button>
+          </form>
+        </div>
+      )}
     </div>
   );
 }
@@ -245,7 +409,7 @@ function CategoryPicker({ label, selected, onChange, placeholder }) {
   );
 }
 
-function ArtisanListingForm({ auth }) {
+function ArtisanListingForm({ user, auth }) {
   const {
     profileForm,
     setProfileForm,
@@ -254,10 +418,17 @@ function ArtisanListingForm({ auth }) {
     handleArtisanProfileSave,
     artisanListingStatus,
     accountMessage,
-    accountError
+    accountError,
+    reauthForm,
+    setReauthForm,
+    requestReauthEmailCode,
+    reauthBusy
   } = auth;
 
   const setField = (field) => (event) => setProfileForm({ ...profileForm, [field]: event.target.value });
+  const companyChanged =
+    String(profileForm.companyName || '').trim().toLowerCase() !==
+    String(user?.artisanProfile?.companyName || '').trim().toLowerCase();
 
   return (
     <div className="glass-card">
@@ -277,6 +448,22 @@ function ArtisanListingForm({ auth }) {
             <input type="text" className="form-control" value={profileForm.phoneNumber} onChange={setField('phoneNumber')} />
           </div>
         </div>
+
+        {companyChanged && (
+          <div style={{ marginBottom: '14px', padding: '12px', borderRadius: '8px', border: '1px solid rgba(250, 204, 21, 0.35)', background: 'rgba(250, 204, 21, 0.08)' }}>
+            <p style={{ fontSize: '12px', color: '#fde68a', marginBottom: '8px' }}>
+              Changing company name requires re-authentication.
+            </p>
+            <ReauthFields
+              user={user}
+              values={reauthForm}
+              onChange={setReauthForm}
+              onRequestEmailCode={requestReauthEmailCode}
+              emailCodeBusy={reauthBusy}
+              compact
+            />
+          </div>
+        )}
 
         <div className="grid-container grid-2">
           <div className="form-group">
@@ -410,8 +597,24 @@ function ArtisanListingForm({ auth }) {
   );
 }
 
-function ClientProfileForm({ auth }) {
-  const { accountForm, setAccountForm, accountBusy, accountMessage, accountError, handleAccountProfileSave } = auth;
+function ClientProfileForm({ user, auth }) {
+  const {
+    accountForm,
+    setAccountForm,
+    accountBusy,
+    accountMessage,
+    accountError,
+    handleAccountProfileSave,
+    reauthForm,
+    setReauthForm,
+    requestReauthEmailCode,
+    reauthBusy
+  } = auth;
+
+  const showCompany = FIRM_TYPES.has(accountForm.clientType);
+  const companyChanged =
+    String(accountForm.companyName || '').trim().toLowerCase() !==
+    String(user?.clientProfile?.companyName || '').trim().toLowerCase();
 
   return (
     <div className="glass-card">
@@ -440,6 +643,8 @@ function ClientProfileForm({ auth }) {
             >
               <option value="interior_designer">Interior Designer</option>
               <option value="architectural_firm">Architectural Firm</option>
+              <option value="design_firm">Design Firm</option>
+              <option value="company">Company</option>
               <option value="hobbyist">Hobbyist</option>
               <option value="student">Student</option>
               <option value="private_client">Private Client</option>
@@ -460,6 +665,35 @@ function ClientProfileForm({ auth }) {
           </div>
         </div>
 
+        {showCompany && (
+          <div className="form-group">
+            <label className="form-label">Company Name</label>
+            <input
+              type="text"
+              className="form-control"
+              value={accountForm.companyName || ''}
+              onChange={e => setAccountForm({ ...accountForm, companyName: e.target.value })}
+              required
+            />
+          </div>
+        )}
+
+        {companyChanged && (
+          <div style={{ marginBottom: '14px', padding: '12px', borderRadius: '8px', border: '1px solid rgba(250, 204, 21, 0.35)', background: 'rgba(250, 204, 21, 0.08)' }}>
+            <p style={{ fontSize: '12px', color: '#fde68a', marginBottom: '8px' }}>
+              Changing company details requires re-authentication.
+            </p>
+            <ReauthFields
+              user={user}
+              values={reauthForm}
+              onChange={setReauthForm}
+              onRequestEmailCode={requestReauthEmailCode}
+              emailCodeBusy={reauthBusy}
+              compact
+            />
+          </div>
+        )}
+
         <button type="submit" className="btn btn-primary" disabled={accountBusy} style={{ width: '100%' }}>
           Save Profile Details
         </button>
@@ -468,7 +702,7 @@ function ClientProfileForm({ auth }) {
   );
 }
 
-function ClientPortalPanel({ auth, boards }) {
+function ClientPortalPanel({ user, auth, boards }) {
   const {
     boards: boardList,
     activeBoardId,
@@ -484,7 +718,7 @@ function ClientPortalPanel({ auth, boards }) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-      <ClientProfileForm auth={auth} />
+      <ClientProfileForm user={user} auth={auth} />
 
       <div className="glass-card">
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border-color)', paddingBottom: '12px', marginBottom: '16px' }}>
@@ -600,7 +834,13 @@ export function DashboardView({ user, auth, boards }) {
     <div className="dashboard-container animate-fade-in">
       <div className="dashboard-header">
         <div>
-          <h2>{user.role === 'artisan' ? 'Artisan Sourcing Portal' : 'Client User Portal'}</h2>
+          <h2>
+            {user.role === 'admin'
+              ? 'Admin Security Setup'
+              : user.role === 'artisan'
+                ? 'Artisan Sourcing Portal'
+                : 'Client User Portal'}
+          </h2>
           <p style={{ color: 'var(--color-text-secondary)' }}>Manage account parameters and configurations.</p>
         </div>
         {user.role === 'client' && (
@@ -631,15 +871,24 @@ export function DashboardView({ user, auth, boards }) {
             </div>
 
             <TwoFactorPanel user={user} auth={auth} />
-            <AccountSecurityPanel auth={auth} />
+            <AccountSecurityPanel user={user} auth={auth} />
           </div>
         </div>
 
         {/* Right content: profile forms */}
         {user.role === 'artisan' ? (
-          <ArtisanListingForm auth={auth} />
+          <ArtisanListingForm user={user} auth={auth} />
+        ) : user.role === 'admin' ? (
+          <div className="glass-card">
+            <h3 style={{ marginBottom: '12px' }}>Admin access</h3>
+            <p style={{ fontSize: '14px', color: 'var(--color-text-secondary)' }}>
+              {user.mustEnable2FA
+                ? 'Enable Google Authenticator on the left to unlock the Admin console.'
+                : 'Authenticator is ready. Open Admin from the navigation menu.'}
+            </p>
+          </div>
         ) : (
-          <ClientPortalPanel auth={auth} boards={boards} />
+          <ClientPortalPanel user={user} auth={auth} boards={boards} />
         )}
       </div>
     </div>

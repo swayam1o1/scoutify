@@ -25,11 +25,11 @@ export function Navbar({ currentView, user, onNavigate, onOpenBoards, onSignIn, 
 
         {user?.role === 'admin' && (
           <button
-            className={`btn btn-secondary ${currentView === 'admin' ? 'active-tab' : ''}`}
-            onClick={() => onNavigate('admin')}
+            className={`btn btn-secondary ${currentView === 'admin' || currentView === 'dashboard' ? 'active-tab' : ''}`}
+            onClick={() => onNavigate(user.mustEnable2FA ? 'dashboard' : 'admin')}
           >
             <ShieldCheck size={16} />
-            Admin
+            {user.mustEnable2FA ? 'Setup 2FA' : 'Admin'}
           </button>
         )}
 

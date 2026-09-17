@@ -3,6 +3,7 @@ const router = express.Router();
 const Artisan = require('../models/Artisan');
 const { requireAuth, requireRole } = require('../middleware/auth');
 const { toList, buildSearchText } = require('../utils/artisanFields');
+const { assertReauth, clearReauthChallenge, companyNameChanged } = require('../utils/reauth');
 
 // Every route here is for the signed-in vendor managing their own listing.
 router.use(requireAuth, requireRole('artisan'));
@@ -24,6 +25,7 @@ router.get('/profile', async (req, res) => {
 
 // 2. UPDATE PROFILE & SYNC WITH PUBLIC ARTISAN ENTRY
 // Any edit re-enters admin moderation, so the listing goes back to 'pending'.
+// Company name changes require re-authentication (SRS 3.2).
 router.post('/profile', async (req, res) => {
   try {
     const {
@@ -35,11 +37,21 @@ router.post('/profile', async (req, res) => {
       personOfContact,
       website,
       serviceArea,
-      description
+      description,
+      currentPassword,
+      totpCode,
+      emailOtp
     } = req.body;
 
     if (!companyName?.trim()) {
       return res.status(400).json({ message: 'Company name is required.' });
+    }
+
+    const existing = req.user.artisanProfile?.toObject?.() || req.user.artisanProfile || {};
+    if (companyNameChanged(existing.companyName, companyName)) {
+      const reauthErr = await assertReauth(req.user, { currentPassword, totpCode, emailOtp });
+      if (reauthErr) return res.status(reauthErr.status).json(reauthErr);
+      clearReauthChallenge(req.user);
     }
 
     const specialization = toList(req.body.specialization);
@@ -62,11 +74,9 @@ router.post('/profile', async (req, res) => {
       portfolio: toList(req.body.portfolio)
     };
 
-    // Update User Document
     req.user.artisanProfile = profile;
     await req.user.save();
 
-    // Sync with public Artisan Collection (Linked by userId)
     const listing = await Artisan.findOneAndUpdate(
       { userId: req.user._id },
       {

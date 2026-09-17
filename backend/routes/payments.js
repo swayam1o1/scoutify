@@ -1,10 +1,8 @@
 const express = require('express');
 const router = express.Router();
-const jwt = require('jsonwebtoken');
-const User = require('../models/User');
 const Razorpay = require('razorpay');
-
-const JWT_SECRET = process.env.JWT_SECRET || 'supersecretscoutifykey12345';
+const { requireAuth } = require('../middleware/auth');
+const { assertReauth, clearReauthChallenge } = require('../utils/reauth');
 
 // Razorpay SDK configuration
 let rzp;
@@ -19,20 +17,23 @@ if (keyId && keySecret) {
   });
 }
 
-// 1. CREATE RAZORPAY ORDER
-router.post('/create-order', async (req, res) => {
+function planAmount(plan) {
+  if (plan === 'pro') return 999;
+  if (plan === 'enterprise') return 4999;
+  return null;
+}
+
+// 1. CREATE RAZORPAY ORDER — requires re-auth (SRS 3.2)
+router.post('/create-order', requireAuth, async (req, res) => {
   try {
-    const authHeader = req.headers.authorization;
-    if (!authHeader) return res.status(401).json({ message: 'Unauthorized. Log in to upgrade.' });
+    const { plan, currentPassword, totpCode, emailOtp } = req.body;
+    const amount = planAmount(plan);
+    if (amount == null) return res.status(400).json({ message: 'Invalid plan selected.' });
 
-    const token = authHeader.split(' ')[1];
-    const decoded = jwt.verify(token, JWT_SECRET);
-
-    const { plan } = req.body;
-    let amount = 0;
-    if (plan === 'pro') amount = 999;
-    else if (plan === 'enterprise') amount = 4999;
-    else return res.status(400).json({ message: 'Invalid plan selected.' });
+    const reauthErr = await assertReauth(req.user, { currentPassword, totpCode, emailOtp });
+    if (reauthErr) return res.status(reauthErr.status).json(reauthErr);
+    clearReauthChallenge(req.user);
+    await req.user.save();
 
     // Try creating real Razorpay order if SDK is initialized
     if (rzp) {
@@ -40,7 +41,7 @@ router.post('/create-order', async (req, res) => {
         const order = await rzp.orders.create({
           amount: amount * 100, // in paise
           currency: 'INR',
-          receipt: `receipt_${decoded.id}_${Date.now()}`
+          receipt: `receipt_${req.user._id}_${Date.now()}`
         });
         return res.json({
           simulated: false,
@@ -72,32 +73,31 @@ router.post('/create-order', async (req, res) => {
 });
 
 // 2. VERIFY PAYMENT & UPGRADE PLAN
-router.post('/verify-payment', async (req, res) => {
+// Re-auth already enforced on create-order; payment signature (or simulation flag) gates the upgrade.
+router.post('/verify-payment', requireAuth, async (req, res) => {
   try {
-    const authHeader = req.headers.authorization;
-    if (!authHeader) return res.status(401).json({ message: 'Unauthorized.' });
-
-    const token = authHeader.split(' ')[1];
-    const decoded = jwt.verify(token, JWT_SECRET);
-
     const { paymentId, orderId, signature, plan, simulated } = req.body;
+    const user = req.user;
 
-    const user = await User.findById(decoded.id);
-    if (!user) return res.status(404).json({ message: 'User not found.' });
+    const publicUserPayload = () => ({
+      id: user._id,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      subscriptionPlan: user.subscriptionPlan,
+      twoFactorEnabled: user.twoFactorEnabled,
+      hasPassword: !!user.passwordHash,
+      mustEnable2FA: user.role === 'admin' && !user.twoFactorEnabled,
+      phoneNumber: user.phoneNumber || null,
+      phoneVerified: !!user.phoneVerified
+    });
 
     if (simulated && simulationEnabled) {
       user.subscriptionPlan = plan;
       await user.save();
       return res.json({
         message: 'Subscription upgraded successfully (Simulated Payment).',
-        user: {
-          id: user._id,
-          name: user.name,
-          email: user.email,
-          role: user.role,
-          subscriptionPlan: user.subscriptionPlan,
-          twoFactorEnabled: user.twoFactorEnabled
-        }
+        user: publicUserPayload()
       });
     } else if (simulated) {
       return res.status(400).json({ message: 'Simulated payments are disabled.' });
@@ -115,14 +115,7 @@ router.post('/verify-payment', async (req, res) => {
         await user.save();
         res.json({
           message: 'Subscription upgraded successfully via Razorpay.',
-          user: {
-            id: user._id,
-            name: user.name,
-            email: user.email,
-            role: user.role,
-            subscriptionPlan: user.subscriptionPlan,
-            twoFactorEnabled: user.twoFactorEnabled
-          }
+          user: publicUserPayload()
         });
       } else {
         res.status(400).json({ message: 'Razorpay signature verification failed.' });

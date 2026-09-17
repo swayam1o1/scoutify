@@ -61,16 +61,29 @@ export function useAuth({ onLogout, onLoginSuccess } = {}) {
   const [accountForm, setAccountForm] = useState({
     name: '',
     clientType: 'interior_designer',
-    plannedUse: 'source_vendors'
+    plannedUse: 'source_vendors',
+    companyName: ''
   });
   const [passwordForm, setPasswordForm] = useState({
     currentPassword: '',
     newPassword: '',
-    confirmPassword: ''
+    confirmPassword: '',
+    totpCode: '',
+    emailOtp: ''
   });
+  const [reauthForm, setReauthForm] = useState({
+    currentPassword: '',
+    totpCode: '',
+    emailOtp: ''
+  });
+  const [emailChangeForm, setEmailChangeForm] = useState({ newEmail: '', otp: '' });
+  const [phoneChangeForm, setPhoneChangeForm] = useState({ newPhone: '', otp: '' });
+  const [emailChangeStage, setEmailChangeStage] = useState(''); // '' | 'confirm'
+  const [phoneChangeStage, setPhoneChangeStage] = useState('');
   const [accountMessage, setAccountMessage] = useState('');
   const [accountError, setAccountError] = useState('');
   const [accountBusy, setAccountBusy] = useState(false);
+  const [reauthBusy, setReauthBusy] = useState(false);
 
   // Profile forms
   const [profileForm, setProfileForm] = useState({
@@ -103,7 +116,8 @@ export function useAuth({ onLogout, onLoginSuccess } = {}) {
     setAccountForm({
       name: nextUser.name || '',
       clientType: nextUser.clientProfile?.type || 'interior_designer',
-      plannedUse: nextUser.clientProfile?.plannedUse || 'source_vendors'
+      plannedUse: nextUser.clientProfile?.plannedUse || 'source_vendors',
+      companyName: nextUser.clientProfile?.companyName || ''
     });
 
     const listing = nextUser.artisanProfile || {};
@@ -583,7 +597,18 @@ export function useAuth({ onLogout, onLoginSuccess } = {}) {
     setAccountError('');
     setAccountMessage('');
     try {
-      const res = await authFetch('/artisan/profile', { token, method: 'POST', body: profileForm });
+      const companyChanged =
+        String(profileForm.companyName || '').trim().toLowerCase() !==
+        String(user?.artisanProfile?.companyName || '').trim().toLowerCase();
+
+      const body = { ...profileForm };
+      if (companyChanged) {
+        body.currentPassword = reauthForm.currentPassword;
+        body.totpCode = reauthForm.totpCode;
+        body.emailOtp = reauthForm.emailOtp;
+      }
+
+      const res = await authFetch('/artisan/profile', { token, method: 'POST', body });
       const data = await res.json();
       if (!res.ok) {
         setAccountError(data.message || 'Failed to update listing.');
@@ -591,6 +616,7 @@ export function useAuth({ onLogout, onLoginSuccess } = {}) {
       }
       setArtisanListingStatus(data.contactStatus || 'pending');
       setAccountMessage(data.message || 'Listing saved.');
+      setReauthForm({ currentPassword: '', totpCode: '', emailOtp: '' });
       await refreshUser();
     } catch (err) {
       console.error(err);
@@ -607,7 +633,19 @@ export function useAuth({ onLogout, onLoginSuccess } = {}) {
     try {
       const body = { name: accountForm.name };
       if (user?.role === 'client') {
-        body.clientProfile = { type: accountForm.clientType, plannedUse: accountForm.plannedUse };
+        body.clientProfile = {
+          type: accountForm.clientType,
+          plannedUse: accountForm.plannedUse,
+          companyName: accountForm.companyName
+        };
+        const companyChanged =
+          String(accountForm.companyName || '').trim().toLowerCase() !==
+          String(user?.clientProfile?.companyName || '').trim().toLowerCase();
+        if (companyChanged) {
+          body.currentPassword = reauthForm.currentPassword;
+          body.totpCode = reauthForm.totpCode;
+          body.emailOtp = reauthForm.emailOtp;
+        }
       }
       const res = await authFetch('/auth/profile', { token, method: 'PUT', body });
       const data = await res.json();
@@ -616,6 +654,7 @@ export function useAuth({ onLogout, onLoginSuccess } = {}) {
         return;
       }
       setAccountMessage('Profile details saved.');
+      setReauthForm({ currentPassword: '', totpCode: '', emailOtp: '' });
       await refreshUser();
     } catch (err) {
       console.error(err);
@@ -647,7 +686,9 @@ export function useAuth({ onLogout, onLoginSuccess } = {}) {
         method: 'POST',
         body: {
           currentPassword: passwordForm.currentPassword,
-          newPassword: passwordForm.newPassword
+          newPassword: passwordForm.newPassword,
+          totpCode: passwordForm.totpCode || reauthForm.totpCode,
+          emailOtp: passwordForm.emailOtp || reauthForm.emailOtp
         }
       });
       const data = await res.json();
@@ -655,7 +696,7 @@ export function useAuth({ onLogout, onLoginSuccess } = {}) {
         setAccountError(data.message || 'Could not change password.');
         return;
       }
-      setPasswordForm({ currentPassword: '', newPassword: '', confirmPassword: '' });
+      setPasswordForm({ currentPassword: '', newPassword: '', confirmPassword: '', totpCode: '', emailOtp: '' });
       setAccountMessage('Password changed successfully.');
     } catch (err) {
       console.error(err);
@@ -665,14 +706,163 @@ export function useAuth({ onLogout, onLoginSuccess } = {}) {
     }
   };
 
+  const requestReauthEmailCode = async () => {
+    setReauthBusy(true);
+    setAccountError('');
+    try {
+      const res = await authFetch('/auth/reauth-challenge', { token, method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) {
+        setAccountError(data.message || 'Could not send re-auth code.');
+        return;
+      }
+      setAccountMessage(
+        data.deliveryMode === 'console'
+          ? 'Dev: copy the re-auth code from the backend terminal.'
+          : (data.message || 'Re-auth code sent.')
+      );
+    } catch (err) {
+      setAccountError('Connection error while requesting re-auth code.');
+    } finally {
+      setReauthBusy(false);
+    }
+  };
+
+  const handleStartEmailChange = async (e) => {
+    e.preventDefault();
+    setAccountError('');
+    setAccountMessage('');
+    setAccountBusy(true);
+    try {
+      const res = await authFetch('/auth/change-email', {
+        token,
+        method: 'POST',
+        body: {
+          newEmail: emailChangeForm.newEmail,
+          ...reauthForm
+        }
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setAccountError(data.message || 'Could not start email change.');
+        return;
+      }
+      setEmailChangeStage('confirm');
+      setReauthForm({ currentPassword: '', totpCode: '', emailOtp: '' });
+      setAccountMessage(
+        data.deliveryMode === 'console'
+          ? 'Dev: confirmation OTP is in the backend terminal (new email).'
+          : (data.message || 'Confirmation code sent to the new email.')
+      );
+    } catch (err) {
+      setAccountError('Connection error while changing email.');
+    } finally {
+      setAccountBusy(false);
+    }
+  };
+
+  const handleConfirmEmailChange = async (e) => {
+    e.preventDefault();
+    setAccountError('');
+    setAccountMessage('');
+    setAccountBusy(true);
+    try {
+      const res = await authFetch('/auth/confirm-email-change', {
+        token,
+        method: 'POST',
+        body: { otp: emailChangeForm.otp }
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setAccountError(data.message || 'Could not confirm email change.');
+        return;
+      }
+      setEmailChangeStage('');
+      setEmailChangeForm({ newEmail: '', otp: '' });
+      setAccountMessage(data.message || 'Email updated.');
+      if (data.user) setUser(data.user);
+      else await refreshUser();
+    } catch (err) {
+      setAccountError('Connection error while confirming email.');
+    } finally {
+      setAccountBusy(false);
+    }
+  };
+
+  const handleStartPhoneChange = async (e) => {
+    e.preventDefault();
+    setAccountError('');
+    setAccountMessage('');
+    setAccountBusy(true);
+    try {
+      const res = await authFetch('/auth/change-phone', {
+        token,
+        method: 'POST',
+        body: {
+          newPhone: phoneChangeForm.newPhone,
+          ...reauthForm
+        }
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setAccountError(data.message || 'Could not start phone change.');
+        return;
+      }
+      setPhoneChangeStage('confirm');
+      setReauthForm({ currentPassword: '', totpCode: '', emailOtp: '' });
+      setAccountMessage(
+        data.deliveryMode === 'console'
+          ? 'Dev: phone confirmation OTP is in the backend terminal.'
+          : (data.message || 'Confirmation code sent to the new phone.')
+      );
+    } catch (err) {
+      setAccountError('Connection error while changing phone.');
+    } finally {
+      setAccountBusy(false);
+    }
+  };
+
+  const handleConfirmPhoneChange = async (e) => {
+    e.preventDefault();
+    setAccountError('');
+    setAccountMessage('');
+    setAccountBusy(true);
+    try {
+      const res = await authFetch('/auth/confirm-phone-change', {
+        token,
+        method: 'POST',
+        body: { otp: phoneChangeForm.otp }
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setAccountError(data.message || 'Could not confirm phone change.');
+        return;
+      }
+      setPhoneChangeStage('');
+      setPhoneChangeForm({ newPhone: '', otp: '' });
+      setAccountMessage(data.message || 'Phone updated.');
+      if (data.user) setUser(data.user);
+      else await refreshUser();
+    } catch (err) {
+      setAccountError('Connection error while confirming phone.');
+    } finally {
+      setAccountBusy(false);
+    }
+  };
+
   // Account: soft delete, then drop the local session
-  const handleDeleteAccount = async () => {
+  const handleDeleteAccount = async (e) => {
+    if (e?.preventDefault) e.preventDefault();
     if (!confirm('Delete your Scoutify account? Your listings and boards stop being visible immediately.')) return;
     setAccountError('');
     setAccountMessage('');
     setAccountBusy(true);
     try {
-      const res = await authFetch('/auth/account', { token, method: 'DELETE' });
+      const res = await authFetch('/auth/account', {
+        token,
+        method: 'DELETE',
+        body: { ...reauthForm }
+      });
       const data = await res.json();
       if (!res.ok) {
         setAccountError(data.message || 'Could not delete account.');
@@ -789,7 +979,7 @@ export function useAuth({ onLogout, onLoginSuccess } = {}) {
         alert(data.message || 'Could not enable authenticator.');
         return;
       }
-      setUser(prev => ({ ...prev, twoFactorEnabled: true }));
+      setUser(prev => ({ ...prev, twoFactorEnabled: true, mustEnable2FA: false }));
       setTotpQr('');
       setTotpManualKey('');
       setTotpSetupCode('');
@@ -804,6 +994,10 @@ export function useAuth({ onLogout, onLoginSuccess } = {}) {
 
   const disableTotp = async (e) => {
     e.preventDefault();
+    if (user?.role === 'admin') {
+      alert('Administrators cannot disable two-factor authentication.');
+      return;
+    }
     setTotpBusy(true);
     try {
       const res = await authFetch('/auth/2fa/disable', {
@@ -943,12 +1137,26 @@ export function useAuth({ onLogout, onLoginSuccess } = {}) {
     setAccountForm,
     passwordForm,
     setPasswordForm,
+    reauthForm,
+    setReauthForm,
+    emailChangeForm,
+    setEmailChangeForm,
+    phoneChangeForm,
+    setPhoneChangeForm,
+    emailChangeStage,
+    phoneChangeStage,
     accountMessage,
     accountError,
     accountBusy,
+    reauthBusy,
     handleAccountProfileSave,
     handleChangePassword,
     handleDeleteAccount,
+    requestReauthEmailCode,
+    handleStartEmailChange,
+    handleConfirmEmailChange,
+    handleStartPhoneChange,
+    handleConfirmPhoneChange,
 
     // Authenticator (TOTP)
     totpQr,

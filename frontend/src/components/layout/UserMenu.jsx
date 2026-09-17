@@ -72,7 +72,11 @@ export function UserMenu({ user, currentView, onNavigate, onOpenBoards, onLogout
           <button
             type="button"
             className="user-menu-header"
-            onClick={() => go(() => onNavigate(user.role === 'admin' ? 'admin' : 'dashboard'))}
+            onClick={() => go(() => onNavigate(
+              user.role === 'admin'
+                ? (user.mustEnable2FA ? 'dashboard' : 'admin')
+                : 'dashboard'
+            ))}
           >
             <span className="user-menu-avatar">{getInitials(user.name)}</span>
             <span className="user-menu-meta">
@@ -85,14 +89,26 @@ export function UserMenu({ user, currentView, onNavigate, onOpenBoards, onLogout
           <div className="user-menu-divider" />
 
           {user.role === 'admin' ? (
-            <button
-              type="button"
-              className={`user-menu-item ${currentView === 'admin' ? 'is-active' : ''}`}
-              onClick={() => go(() => onNavigate('admin'))}
-            >
-              <ShieldCheck size={16} />
-              <span>Admin console</span>
-            </button>
+            <>
+              <button
+                type="button"
+                className={`user-menu-item ${currentView === 'dashboard' ? 'is-active' : ''}`}
+                onClick={() => go(() => onNavigate('dashboard'))}
+              >
+                <Settings size={16} />
+                <span>Security / 2FA</span>
+              </button>
+              {!user.mustEnable2FA && (
+                <button
+                  type="button"
+                  className={`user-menu-item ${currentView === 'admin' ? 'is-active' : ''}`}
+                  onClick={() => go(() => onNavigate('admin'))}
+                >
+                  <ShieldCheck size={16} />
+                  <span>Admin console</span>
+                </button>
+              )}
+            </>
           ) : (
             <button
               type="button"

@@ -16,6 +16,7 @@ import { BoardsView } from './components/boards/BoardsView';
 import { BoardDetailsView } from './components/boards/BoardDetailsView';
 import { AuthModal } from './components/auth/AuthModal';
 import { PaymentModal } from './components/payments/PaymentModal';
+import { PaymentReauthModal } from './components/auth/PaymentReauthModal';
 import { AdminView } from './components/admin/AdminView';
 import { syncUrlForView, viewFromPath } from './utils/navigation';
 
@@ -41,7 +42,9 @@ function App() {
   const auth = useAuth({
     onLogout: () => navigate('search'),
     onLoginSuccess: (nextUser) => {
-      if (nextUser?.role === 'admin') navigate('admin');
+      if (nextUser?.role === 'admin') {
+        navigate(nextUser.mustEnable2FA ? 'dashboard' : 'admin');
+      }
     }
   });
 
@@ -59,7 +62,8 @@ function App() {
     user: auth.user,
     setUser: auth.setUser,
     onRequireAuth: auth.openAuthModal,
-    onUpgraded: () => navigate('search')
+    onUpgraded: () => navigate('search'),
+    requestReauthEmailCode: auth.requestReauthEmailCode
   });
 
   const admin = useAdmin({
@@ -76,7 +80,11 @@ function App() {
 
   const { user } = auth;
   const isAdminUser = user?.role === 'admin';
+  const adminNeeds2FA = isAdminUser && !!user?.mustEnable2FA;
   const activeBoard = boards.boards.find(b => b._id === boards.activeBoardId);
+
+  // Admins without 2FA cannot open the admin console yet.
+  const safeView = currentView === 'admin' && adminNeeds2FA ? 'dashboard' : currentView;
 
   return (
     <div id="root">
@@ -93,7 +101,7 @@ function App() {
       />
 
       <main style={{ flex: 1 }}>
-        {currentView === 'search' && (
+        {safeView === 'search' && (
           <SearchView
             search={search}
             boards={boards}
@@ -103,22 +111,22 @@ function App() {
           />
         )}
 
-        {currentView === 'pricing' && (
+        {safeView === 'pricing' && (
           <PricingView
             onStartFreeSearch={() => navigate('search')}
             onUpgradeClick={payments.handleUpgradeClick}
           />
         )}
 
-        {(currentView === 'admin' || (currentView === 'dashboard' && isAdminUser)) && (
+        {safeView === 'admin' && isAdminUser && !adminNeeds2FA && (
           <AdminView admin={admin} />
         )}
 
-        {currentView === 'dashboard' && user && !isAdminUser && (
+        {safeView === 'dashboard' && user && (
           <DashboardView user={user} auth={auth} boards={boards} />
         )}
 
-        {currentView === 'boards' && user && (
+        {safeView === 'boards' && user && (
           <BoardsView
             boards={boards}
             onOpenBoard={(boardId) => {
@@ -128,7 +136,7 @@ function App() {
           />
         )}
 
-        {currentView === 'board-details' && user && (
+        {safeView === 'board-details' && user && (
           activeBoard ? (
             <BoardDetailsView
               board={activeBoard}
@@ -150,6 +158,20 @@ function App() {
       </main>
 
       {auth.showAuthModal && <AuthModal auth={auth} />}
+
+      <PaymentReauthModal
+        open={payments.showReauthModal}
+        user={user}
+        plan={payments.pendingPlan}
+        reauthForm={payments.reauthForm}
+        setReauthForm={payments.setReauthForm}
+        reauthError={payments.reauthError}
+        reauthBusy={payments.reauthBusy}
+        emailCodeBusy={payments.emailCodeBusy}
+        onRequestEmailCode={payments.sendEmailCode}
+        onSubmit={payments.confirmReauthAndStartOrder}
+        onCancel={payments.closeReauthModal}
+      />
 
       {payments.showPaymentModal && payments.activePaymentOrder && (
         <PaymentModal

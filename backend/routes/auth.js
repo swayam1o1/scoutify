@@ -8,6 +8,7 @@ const User = require('../models/User');
 const Artisan = require('../models/Artisan');
 const { requireAuth } = require('../middleware/auth');
 const { sendEmailOtp, sendPhoneOtp, normalizePhone } = require('../utils/otpDelivery');
+const { assertReauth, clearReauthChallenge, companyNameChanged, verifyTotp } = require('../utils/reauth');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'supersecretscoutifykey12345';
 const TOTP_ISSUER = process.env.TOTP_ISSUER || 'Scoutify';
@@ -27,6 +28,8 @@ function publicUser(user) {
     role: user.role,
     subscriptionPlan: user.subscriptionPlan,
     twoFactorEnabled: user.twoFactorEnabled,
+    hasPassword: !!user.passwordHash,
+    mustEnable2FA: user.role === 'admin' && !user.twoFactorEnabled,
     isVerified: user.isVerified,
     isSuspended: user.isSuspended,
     clientProfile: user.clientProfile,
@@ -45,17 +48,6 @@ function blockedAccountResponse(user, res) {
     return true;
   }
   return false;
-}
-
-function verifyTotp(secret, code) {
-  const token = String(code || '').replace(/\s/g, '');
-  if (!secret || !/^\d{6}$/.test(token)) return false;
-  return speakeasy.totp.verify({
-    secret,
-    encoding: 'base32',
-    token,
-    window: 1
-  });
 }
 
 async function getAuthedUser(req, res) {
@@ -521,6 +513,13 @@ router.post('/2fa/disable', async (req, res) => {
     const user = await getAuthedUser(req, res);
     if (!user) return;
 
+    if (user.role === 'admin') {
+      return res.status(403).json({
+        message: 'Administrators cannot disable two-factor authentication.',
+        code: 'ADMIN_2FA_MANDATORY'
+      });
+    }
+
     if (!user.twoFactorEnabled || !user.twoFactorSecret) {
       user.twoFactorEnabled = false;
       user.twoFactorSecret = undefined;
@@ -648,7 +647,7 @@ router.get('/me', requireAuth, async (req, res) => {
 router.put('/profile', requireAuth, async (req, res) => {
   try {
     const user = req.user;
-    const { name, clientProfile, artisanProfile } = req.body;
+    const { name, clientProfile, artisanProfile, currentPassword, totpCode, emailOtp } = req.body;
 
     if (name !== undefined) {
       if (!String(name).trim()) {
@@ -658,14 +657,38 @@ router.put('/profile', requireAuth, async (req, res) => {
     }
 
     if (user.role === 'client' && clientProfile) {
+      const nextCompany = clientProfile.companyName !== undefined
+        ? String(clientProfile.companyName || '').trim()
+        : user.clientProfile?.companyName;
+
+      if (companyNameChanged(user.clientProfile?.companyName, nextCompany)) {
+        const reauthErr = await assertReauth(user, { currentPassword, totpCode, emailOtp });
+        if (reauthErr) return res.status(reauthErr.status).json(reauthErr);
+        clearReauthChallenge(user);
+      }
+
+      if (FIRM_TYPES.has(clientProfile.type ?? user.clientProfile?.type) && !nextCompany) {
+        return res.status(400).json({ message: 'Company name is required for firm / company profiles.' });
+      }
+
       user.clientProfile = {
         type: clientProfile.type ?? user.clientProfile?.type,
-        plannedUse: clientProfile.plannedUse ?? user.clientProfile?.plannedUse
+        plannedUse: clientProfile.plannedUse ?? user.clientProfile?.plannedUse,
+        companyName: nextCompany || undefined,
+        phoneNumber: clientProfile.phoneNumber ?? user.clientProfile?.phoneNumber
       };
     }
 
     if (user.role === 'artisan' && artisanProfile) {
       const existing = user.artisanProfile?.toObject?.() || user.artisanProfile || {};
+      if (
+        artisanProfile.companyName !== undefined &&
+        companyNameChanged(existing.companyName, artisanProfile.companyName)
+      ) {
+        const reauthErr = await assertReauth(user, { currentPassword, totpCode, emailOtp });
+        if (reauthErr) return res.status(reauthErr.status).json(reauthErr);
+        clearReauthChallenge(user);
+      }
       user.artisanProfile = { ...existing, ...artisanProfile };
     }
 
@@ -680,11 +703,11 @@ router.put('/profile', requireAuth, async (req, res) => {
 // 10. CHANGE PASSWORD
 router.post('/change-password', requireAuth, async (req, res) => {
   try {
-    const { currentPassword, newPassword } = req.body;
+    const { currentPassword, newPassword, totpCode, emailOtp } = req.body;
     const user = req.user;
 
-    if (!currentPassword || !newPassword) {
-      return res.status(400).json({ message: 'Current and new password are required.' });
+    if (!newPassword) {
+      return res.status(400).json({ message: 'New password is required.' });
     }
     if (newPassword.length < 8) {
       return res.status(400).json({ message: 'New password must be at least 8 characters.' });
@@ -693,10 +716,9 @@ router.post('/change-password', requireAuth, async (req, res) => {
       return res.status(400).json({ message: 'This account has no password set. Use “Forgot password” to create one.' });
     }
 
-    const isMatch = await bcrypt.compare(currentPassword, user.passwordHash);
-    if (!isMatch) {
-      return res.status(400).json({ message: 'Current password is incorrect.' });
-    }
+    const reauthErr = await assertReauth(user, { currentPassword, totpCode, emailOtp });
+    if (reauthErr) return res.status(reauthErr.status).json(reauthErr);
+    clearReauthChallenge(user);
 
     user.passwordHash = await bcrypt.hash(newPassword, 10);
     await user.save();
@@ -778,7 +800,7 @@ router.post('/reset-password', async (req, res) => {
   }
 });
 
-// 13. DELETE OWN ACCOUNT (soft delete)
+// 13. DELETE OWN ACCOUNT (soft delete) — requires re-auth
 router.delete('/account', requireAuth, async (req, res) => {
   try {
     const user = req.user;
@@ -786,12 +808,24 @@ router.delete('/account', requireAuth, async (req, res) => {
       return res.status(403).json({ message: 'Admin accounts cannot be self-deleted.' });
     }
 
+    const { currentPassword, totpCode, emailOtp } = req.body || {};
+    const reauthErr = await assertReauth(user, { currentPassword, totpCode, emailOtp });
+    if (reauthErr) return res.status(reauthErr.status).json(reauthErr);
+
     user.isDeleted = true;
     user.deletedAt = new Date();
     user.otp = undefined;
     user.otpExpires = undefined;
     user.passwordResetOtp = undefined;
     user.passwordResetExpires = undefined;
+    user.reauthOtp = undefined;
+    user.reauthOtpExpires = undefined;
+    user.pendingEmail = undefined;
+    user.pendingEmailOtp = undefined;
+    user.pendingEmailExpires = undefined;
+    user.pendingPhone = undefined;
+    user.pendingPhoneOtp = undefined;
+    user.pendingPhoneExpires = undefined;
     user.twoFactorEnabled = false;
     user.twoFactorSecret = undefined;
     await user.save();
@@ -805,6 +839,216 @@ router.delete('/account', requireAuth, async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: 'Server error deleting account.' });
+  }
+});
+
+// 14. Re-auth email challenge (Google-only accounts without TOTP)
+router.post('/reauth-challenge', requireAuth, async (req, res) => {
+  try {
+    const user = req.user;
+    if (user.passwordHash || (user.twoFactorEnabled && user.twoFactorSecret)) {
+      return res.status(400).json({
+        message: 'Use your password and/or authenticator code instead of an email challenge.'
+      });
+    }
+
+    const otp = generateOTP();
+    user.reauthOtp = otp;
+    user.reauthOtpExpires = new Date(Date.now() + 10 * 60 * 1000);
+    await user.save();
+
+    const delivery = await sendEmailOtp({ to: user.email, otp, purpose: 'verification' });
+    res.json({
+      message: delivery.mode === 'console'
+        ? 'Re-auth code logged to server console.'
+        : 'Re-auth code sent to your email.',
+      deliveryMode: delivery.mode
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Server error starting re-auth challenge.' });
+  }
+});
+
+// 15. Start email change (re-auth + OTP to new address)
+router.post('/change-email', requireAuth, async (req, res) => {
+  try {
+    const user = req.user;
+    const { newEmail, currentPassword, totpCode, emailOtp } = req.body;
+    const normalized = String(newEmail || '').trim().toLowerCase();
+
+    if (!normalized || !normalized.includes('@')) {
+      return res.status(400).json({ message: 'Enter a valid new email address.' });
+    }
+    if (normalized === user.email) {
+      return res.status(400).json({ message: 'That is already your current email.' });
+    }
+
+    const reauthErr = await assertReauth(user, { currentPassword, totpCode, emailOtp });
+    if (reauthErr) return res.status(reauthErr.status).json(reauthErr);
+
+    const taken = await User.findOne({ email: normalized, isDeleted: { $ne: true } });
+    if (taken) {
+      return res.status(400).json({ message: 'Email already registered.' });
+    }
+
+    const otp = generateOTP();
+    user.pendingEmail = normalized;
+    user.pendingEmailOtp = otp;
+    user.pendingEmailExpires = new Date(Date.now() + 10 * 60 * 1000);
+    clearReauthChallenge(user);
+    await user.save();
+
+    const delivery = await sendEmailOtp({ to: normalized, otp, purpose: 'verification' });
+    res.json({
+      message: delivery.mode === 'console'
+        ? 'Confirmation code for the new email was logged to the server console.'
+        : 'Confirmation code sent to the new email address.',
+      pendingEmail: normalized,
+      deliveryMode: delivery.mode,
+      otpRequired: true
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Server error starting email change.' });
+  }
+});
+
+router.post('/confirm-email-change', requireAuth, async (req, res) => {
+  try {
+    const user = req.user;
+    const otp = String(req.body.otp || '').trim();
+
+    if (
+      !user.pendingEmail ||
+      !user.pendingEmailOtp ||
+      user.pendingEmailOtp !== otp ||
+      !user.pendingEmailExpires ||
+      user.pendingEmailExpires < new Date()
+    ) {
+      return res.status(400).json({ message: 'Invalid or expired email confirmation code.' });
+    }
+
+    const taken = await User.findOne({
+      email: user.pendingEmail,
+      _id: { $ne: user._id },
+      isDeleted: { $ne: true }
+    });
+    if (taken) {
+      return res.status(400).json({ message: 'Email already registered.' });
+    }
+
+    user.email = user.pendingEmail;
+    user.pendingEmail = undefined;
+    user.pendingEmailOtp = undefined;
+    user.pendingEmailExpires = undefined;
+    if (user.role === 'artisan' && user.artisanProfile) {
+      user.artisanProfile.email = user.email;
+    }
+    await user.save();
+
+    res.json({ message: 'Email updated successfully.', user: publicUser(user) });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Server error confirming email change.' });
+  }
+});
+
+// 16. Start phone change (re-auth + OTP to new number)
+router.post('/change-phone', requireAuth, async (req, res) => {
+  try {
+    const user = req.user;
+    const { newPhone, currentPassword, totpCode, emailOtp } = req.body;
+    const phone = normalizePhone(newPhone);
+
+    if (!phone || phone.length < 10) {
+      return res.status(400).json({ message: 'Enter a valid 10-digit phone number.' });
+    }
+    if (phone === user.phoneNumber) {
+      return res.status(400).json({ message: 'That is already your current phone number.' });
+    }
+
+    const reauthErr = await assertReauth(user, { currentPassword, totpCode, emailOtp });
+    if (reauthErr) return res.status(reauthErr.status).json(reauthErr);
+
+    const taken = await User.findOne({
+      phoneNumber: phone,
+      _id: { $ne: user._id },
+      isDeleted: { $ne: true }
+    });
+    if (taken) {
+      return res.status(400).json({ message: 'Phone number already registered to another account.' });
+    }
+
+    const otp = generateOTP();
+    user.pendingPhone = phone;
+    user.pendingPhoneOtp = otp;
+    user.pendingPhoneExpires = new Date(Date.now() + 10 * 60 * 1000);
+    clearReauthChallenge(user);
+    await user.save();
+
+    const delivery = await sendPhoneOtp({ phone, otp, purpose: 'verification' });
+    res.json({
+      message: delivery.mode === 'console'
+        ? 'Phone confirmation code logged to the server console.'
+        : 'Confirmation code sent to the new phone number.',
+      pendingPhone: phone,
+      deliveryMode: delivery.mode,
+      otpRequired: true
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Server error starting phone change.' });
+  }
+});
+
+router.post('/confirm-phone-change', requireAuth, async (req, res) => {
+  try {
+    const user = req.user;
+    const otp = String(req.body.otp || '').trim();
+
+    if (
+      !user.pendingPhone ||
+      !user.pendingPhoneOtp ||
+      user.pendingPhoneOtp !== otp ||
+      !user.pendingPhoneExpires ||
+      user.pendingPhoneExpires < new Date()
+    ) {
+      return res.status(400).json({ message: 'Invalid or expired phone confirmation code.' });
+    }
+
+    const taken = await User.findOne({
+      phoneNumber: user.pendingPhone,
+      _id: { $ne: user._id },
+      isDeleted: { $ne: true }
+    });
+    if (taken) {
+      return res.status(400).json({ message: 'Phone number already registered to another account.' });
+    }
+
+    user.phoneNumber = user.pendingPhone;
+    user.phoneVerified = true;
+    user.pendingPhone = undefined;
+    user.pendingPhoneOtp = undefined;
+    user.pendingPhoneExpires = undefined;
+    if (user.role === 'client') {
+      user.clientProfile = {
+        ...(user.clientProfile?.toObject?.() || user.clientProfile || {}),
+        phoneNumber: user.phoneNumber
+      };
+    }
+    if (user.role === 'artisan') {
+      user.artisanProfile = {
+        ...(user.artisanProfile?.toObject?.() || user.artisanProfile || {}),
+        phoneNumber: user.phoneNumber
+      };
+    }
+    await user.save();
+
+    res.json({ message: 'Phone number updated successfully.', user: publicUser(user) });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Server error confirming phone change.' });
   }
 });
 

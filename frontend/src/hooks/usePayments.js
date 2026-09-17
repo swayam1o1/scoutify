@@ -1,42 +1,78 @@
 import { useState } from 'react';
 import { authFetch } from '../api/client';
+import { emptyReauth } from '../components/auth/ReauthFields.jsx';
 
-export function usePayments({ token, user, setUser, onRequireAuth, onUpgraded }) {
-  // Payment simulator modal
+export function usePayments({ token, user, setUser, onRequireAuth, onUpgraded, requestReauthEmailCode }) {
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [activePaymentOrder, setActivePaymentOrder] = useState(null);
+  const [showReauthModal, setShowReauthModal] = useState(false);
+  const [pendingPlan, setPendingPlan] = useState(null);
+  const [reauthForm, setReauthForm] = useState(emptyReauth());
+  const [reauthError, setReauthError] = useState('');
+  const [reauthBusy, setReauthBusy] = useState(false);
+  const [emailCodeBusy, setEmailCodeBusy] = useState(false);
+  const [verifiedReauth, setVerifiedReauth] = useState(null);
 
-  // Payments: Create Razorpay Order
   const handleUpgradeClick = async (plan) => {
     if (!user) {
       onRequireAuth?.('register');
       return;
     }
+    setPendingPlan(plan);
+    setReauthForm(emptyReauth());
+    setReauthError('');
+    setShowReauthModal(true);
+  };
 
+  const sendEmailCode = async () => {
+    setEmailCodeBusy(true);
+    setReauthError('');
     try {
-      const res = await authFetch('/payments/create-order', { token, method: 'POST', body: { plan } });
+      if (requestReauthEmailCode) {
+        await requestReauthEmailCode();
+        alert('If needed, check the backend console / email for the re-auth code.');
+      }
+    } catch (err) {
+      setReauthError('Could not send re-auth code.');
+    } finally {
+      setEmailCodeBusy(false);
+    }
+  };
 
+  const confirmReauthAndStartOrder = async (e) => {
+    e.preventDefault();
+    if (!pendingPlan) return;
+    setReauthBusy(true);
+    setReauthError('');
+    try {
+      const res = await authFetch('/payments/create-order', {
+        token,
+        method: 'POST',
+        body: { plan: pendingPlan, ...reauthForm }
+      });
       const data = await res.json();
       if (!res.ok) {
-        alert(data.message || 'Failed to initiate order.');
+        setReauthError(data.message || 'Failed to initiate order.');
         return;
       }
 
+      const credentials = { ...reauthForm };
+      setVerifiedReauth(credentials);
+      setShowReauthModal(false);
+      setReauthForm(emptyReauth());
+
       if (data.simulated) {
-        // Open Simulated checkout Modal
         setActivePaymentOrder(data);
         setShowPaymentModal(true);
       } else {
-        // Open Real Razorpay Standard Checkout
         const options = {
           key: data.keyId,
           amount: data.amount,
           currency: 'INR',
           name: 'Scoutify',
-          description: `${plan.toUpperCase()} Membership Upgrade`,
+          description: `${pendingPlan.toUpperCase()} Membership Upgrade`,
           order_id: data.orderId,
           handler: async function (response) {
-            // Verify payment
             const verifyRes = await authFetch('/payments/verify-payment', {
               token,
               method: 'POST',
@@ -44,15 +80,16 @@ export function usePayments({ token, user, setUser, onRequireAuth, onUpgraded })
                 paymentId: response.razorpay_payment_id,
                 orderId: response.razorpay_order_id,
                 signature: response.razorpay_signature,
-                plan,
-                simulated: false
+                plan: pendingPlan,
+                simulated: false,
+                ...credentials
               }
             });
 
             const verifyData = await verifyRes.json();
             if (verifyRes.ok) {
               setUser(verifyData.user);
-              alert('Payment verified! Your account is now upgraded to ' + plan.toUpperCase() + '.');
+              alert('Payment verified! Your account is now upgraded to ' + pendingPlan.toUpperCase() + '.');
               onUpgraded?.();
             } else {
               alert(verifyData.message || 'Verification failed.');
@@ -72,15 +109,17 @@ export function usePayments({ token, user, setUser, onRequireAuth, onUpgraded })
       }
     } catch (err) {
       console.error(err);
-      alert('Error connecting to payment processor.');
+      setReauthError('Error connecting to payment processor.');
+    } finally {
+      setReauthBusy(false);
     }
   };
 
-  // Payments: Complete Simulated payment
   const completeSimulatedPayment = async (success) => {
     if (!success) {
       alert('Payment failed/cancelled.');
       setShowPaymentModal(false);
+      setVerifiedReauth(null);
       return;
     }
 
@@ -92,7 +131,8 @@ export function usePayments({ token, user, setUser, onRequireAuth, onUpgraded })
           paymentId: `pay_sim_${Math.random().toString(36).substr(2, 9)}`,
           orderId: activePaymentOrder.orderId,
           plan: activePaymentOrder.plan,
-          simulated: true
+          simulated: true,
+          ...(verifiedReauth || {})
         }
       });
 
@@ -101,6 +141,7 @@ export function usePayments({ token, user, setUser, onRequireAuth, onUpgraded })
         setUser(data.user);
         alert('Simulated payment successful! Upgraded to ' + activePaymentOrder.plan.toUpperCase());
         setShowPaymentModal(false);
+        setVerifiedReauth(null);
         onUpgraded?.();
       } else {
         alert(data.message || 'Payment upgrade verification failed.');
@@ -111,11 +152,28 @@ export function usePayments({ token, user, setUser, onRequireAuth, onUpgraded })
     }
   };
 
+  const closeReauthModal = () => {
+    setShowReauthModal(false);
+    setPendingPlan(null);
+    setReauthError('');
+    setReauthForm(emptyReauth());
+  };
+
   return {
     showPaymentModal,
     activePaymentOrder,
+    showReauthModal,
+    pendingPlan,
+    reauthForm,
+    setReauthForm,
+    reauthError,
+    reauthBusy,
+    emailCodeBusy,
     handleUpgradeClick,
-    completeSimulatedPayment
+    completeSimulatedPayment,
+    confirmReauthAndStartOrder,
+    closeReauthModal,
+    sendEmailCode
   };
 }
 

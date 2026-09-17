@@ -13,7 +13,7 @@ const {
 } = require('../constants/artisan');
 
 const NOT_DELETED = { isDeleted: { $ne: true } };
-const SAFE_USER_FIELDS = '-passwordHash -otp -otpExpires -twoFactorSecret -passwordResetOtp -passwordResetExpires';
+const SAFE_USER_FIELDS = '-passwordHash -otp -otpExpires -twoFactorSecret -passwordResetOtp -passwordResetExpires -reauthOtp -reauthOtpExpires -pendingEmailOtp -pendingPhoneOtp -phoneOtp';
 
 // Audit writes must never break the admin action itself.
 async function writeAudit(actor, action, targetType, targetId, meta) {
