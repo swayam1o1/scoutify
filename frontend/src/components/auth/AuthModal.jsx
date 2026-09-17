@@ -1,5 +1,21 @@
 import { HelpCircle } from 'lucide-react';
 import { PasswordInput } from './PasswordInput';
+import { DarkSelect } from '../ui/DarkSelect.jsx';
+
+const CLIENT_TYPE_OPTIONS = [
+  { value: 'interior_designer', label: 'Interior Designer (Individual)' },
+  { value: 'architectural_firm', label: 'Architectural Firm / Company' },
+  { value: 'hobbyist', label: 'Hobbyist' },
+  { value: 'student', label: 'Student' },
+  { value: 'private_client', label: 'Private Client' }
+];
+
+const PLANNED_USE_OPTIONS = [
+  { value: 'source_vendors', label: 'Source Vendors for active projects' },
+  { value: 'hiring', label: 'Direct hiring for short-term projects' },
+  { value: 'collaboration', label: 'Collaborations and partnership reference' },
+  { value: 'research', label: 'Research and database compilation' }
+];
 
 export function AuthModal({ auth }) {
   const {
@@ -13,6 +29,12 @@ export function AuthModal({ auth }) {
     devOtp,
     verifyingOtp,
     verifying2Fa,
+    verifyingPhone,
+    pendingPhone,
+    phoneOtp,
+    setPhoneOtp,
+    handleVerifyPhoneOtp,
+    skipPhoneVerification,
     verificationCode,
     setVerificationCode,
     handleVerifyOtp,
@@ -34,6 +56,10 @@ export function AuthModal({ auth }) {
     setClientType,
     clientPlannedUse,
     setClientPlannedUse,
+    clientCompany,
+    setClientCompany,
+    clientPhone,
+    setClientPhone,
     artisanName,
     setArtisanName,
     artisanEmail,
@@ -63,25 +89,29 @@ export function AuthModal({ auth }) {
     handleResetPassword
   } = auth;
 
-  const showMainForms = !verifyingOtp && !verifying2Fa && !forgotStage;
+  const showMainForms = !verifyingOtp && !verifying2Fa && !verifyingPhone && !forgotStage;
 
   const heading = verifyingOtp
     ? 'Account Verification'
     : verifying2Fa
       ? 'Two-Factor Login'
-      : forgotStage
-        ? 'Reset Password'
-        : authTab === 'login' ? 'Welcome Back' : 'Get Started';
+      : verifyingPhone
+        ? 'Verify Phone'
+        : forgotStage
+          ? 'Reset Password'
+          : authTab === 'login' ? 'Welcome Back' : 'Get Started';
 
   const subheading = verifyingOtp
-    ? 'Enter verification code'
+    ? 'Enter the email verification code'
     : verifying2Fa
       ? 'Use Google Authenticator'
-      : forgotStage === 'request'
-        ? 'We will send a 6-digit reset code to your email.'
-        : forgotStage === 'reset'
-          ? 'Enter the reset code and choose a new password.'
-          : 'Unlock direct connections with verified artisans.';
+      : verifyingPhone
+        ? `Enter the OTP sent to ${pendingPhone || 'your phone'}`
+        : forgotStage === 'request'
+          ? 'We will send a 6-digit reset code to your email.'
+          : forgotStage === 'reset'
+            ? 'Enter the reset code and choose a new password.'
+            : 'Unlock direct connections with verified artisans.';
 
   return (
     <div className="modal-overlay">
@@ -119,7 +149,7 @@ export function AuthModal({ auth }) {
         {verifyingOtp && (
           <form onSubmit={handleVerifyOtp}>
             <div className="form-group">
-              <label className="form-label">6-digit OTP Code</label>
+              <label className="form-label required">6-digit OTP Code</label>
               <input
                 type="text"
                 className="form-control"
@@ -138,7 +168,7 @@ export function AuthModal({ auth }) {
         {verifying2Fa && (
           <form onSubmit={handleVerify2Fa}>
             <div className="form-group">
-              <label className="form-label">Google Authenticator code</label>
+              <label className="form-label required">Google Authenticator code</label>
               <input
                 type="text"
                 className="form-control"
@@ -156,10 +186,34 @@ export function AuthModal({ auth }) {
           </form>
         )}
 
+        {verifyingPhone && (
+          <form onSubmit={handleVerifyPhoneOtp}>
+            <div className="form-group">
+              <label className="form-label required">6-digit Phone OTP</label>
+              <input
+                type="text"
+                className="form-control"
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                placeholder="Enter phone OTP"
+                value={phoneOtp}
+                onChange={e => setPhoneOtp(e.target.value)}
+                required
+              />
+            </div>
+            <button type="submit" className="btn btn-primary" style={{ width: '100%' }}>
+              Verify Phone
+            </button>
+            <button type="button" className="btn btn-outline" style={{ width: '100%', marginTop: '10px' }} onClick={skipPhoneVerification}>
+              Skip for now
+            </button>
+          </form>
+        )}
+
         {forgotStage === 'request' && (
           <form onSubmit={handleForgotPassword}>
             <div className="form-group">
-              <label className="form-label">Account Email</label>
+              <label className="form-label required">Account Email</label>
               <input
                 type="email"
                 className="form-control"
@@ -181,7 +235,7 @@ export function AuthModal({ auth }) {
         {forgotStage === 'reset' && (
           <form onSubmit={handleResetPassword}>
             <div className="form-group">
-              <label className="form-label">6-digit Reset Code</label>
+              <label className="form-label required">6-digit Reset Code</label>
               <input
                 type="text"
                 className="form-control"
@@ -194,7 +248,7 @@ export function AuthModal({ auth }) {
               />
             </div>
             <div className="form-group">
-              <label className="form-label">New Password</label>
+              <label className="form-label required">New Password</label>
               <PasswordInput
                 value={forgotNewPassword}
                 onChange={e => setForgotNewPassword(e.target.value)}
@@ -254,7 +308,7 @@ export function AuthModal({ auth }) {
               {authTab === 'login' ? (
                 <>
                   <div className="form-group">
-                    <label className="form-label">Email Address</label>
+                    <label className="form-label required">Email Address</label>
                     <input
                       type="email"
                       className="form-control"
@@ -264,7 +318,7 @@ export function AuthModal({ auth }) {
                     />
                   </div>
                   <div className="form-group">
-                    <label className="form-label">Password</label>
+                    <label className="form-label required">Password</label>
                     <PasswordInput
                       value={loginPassword}
                       onChange={e => setLoginPassword(e.target.value)}
@@ -282,7 +336,7 @@ export function AuthModal({ auth }) {
               ) : authRole === 'client' ? (
                 <>
                   <div className="form-group">
-                    <label className="form-label">Full Name</label>
+                    <label className="form-label required">Full Name</label>
                     <input
                       type="text"
                       className="form-control"
@@ -292,7 +346,7 @@ export function AuthModal({ auth }) {
                     />
                   </div>
                   <div className="form-group">
-                    <label className="form-label">Email Address</label>
+                    <label className="form-label required">Email Address</label>
                     <input
                       type="email"
                       className="form-control"
@@ -302,7 +356,7 @@ export function AuthModal({ auth }) {
                     />
                   </div>
                   <div className="form-group">
-                    <label className="form-label">Password</label>
+                    <label className="form-label required">Password</label>
                     <PasswordInput
                       value={clientPassword}
                       onChange={e => setClientPassword(e.target.value)}
@@ -310,30 +364,47 @@ export function AuthModal({ auth }) {
                       required
                     />
                   </div>
+                  <DarkSelect
+                    label="What best describes you?"
+                    value={clientType}
+                    onChange={setClientType}
+                    options={CLIENT_TYPE_OPTIONS}
+                    required
+                  />
+                  {(clientType === 'architectural_firm' || clientType === 'design_firm' || clientType === 'company' || clientType === 'firm') && (
+                    <div className="form-group">
+                      <label className="form-label required">Company Name</label>
+                      <input
+                        type="text"
+                        className="form-control"
+                        value={clientCompany}
+                        onChange={e => setClientCompany(e.target.value)}
+                        required
+                      />
+                    </div>
+                  )}
                   <div className="form-group">
-                    <label className="form-label">What best describes you?</label>
-                    <select className="form-control form-select" value={clientType} onChange={e => setClientType(e.target.value)}>
-                      <option value="interior_designer">Interior Designer</option>
-                      <option value="architectural_firm">Architectural Firm</option>
-                      <option value="hobbyist">Hobbyist</option>
-                      <option value="student">Student</option>
-                      <option value="private_client">Private Client</option>
-                    </select>
+                    <label className="form-label">Phone Number (optional)</label>
+                    <input
+                      type="tel"
+                      className="form-control"
+                      placeholder="10-digit mobile"
+                      value={clientPhone}
+                      onChange={e => setClientPhone(e.target.value)}
+                    />
                   </div>
-                  <div className="form-group">
-                    <label className="form-label">Planned Usage</label>
-                    <select className="form-control form-select" value={clientPlannedUse} onChange={e => setClientPlannedUse(e.target.value)}>
-                      <option value="source_vendors">Source Vendors for active projects</option>
-                      <option value="hiring">Direct hiring for short-term projects</option>
-                      <option value="collaboration">Collaborations and partnership reference</option>
-                      <option value="research">Research and database compilation</option>
-                    </select>
-                  </div>
+                  <DarkSelect
+                    label="Planned Usage"
+                    value={clientPlannedUse}
+                    onChange={setClientPlannedUse}
+                    options={PLANNED_USE_OPTIONS}
+                    required
+                  />
                 </>
               ) : (
                 <>
                   <div className="form-group">
-                    <label className="form-label">Artisan Full Name</label>
+                    <label className="form-label required">Artisan Full Name</label>
                     <input
                       type="text"
                       className="form-control"
@@ -343,7 +414,7 @@ export function AuthModal({ auth }) {
                     />
                   </div>
                   <div className="form-group">
-                    <label className="form-label">Email Address</label>
+                    <label className="form-label required">Email Address</label>
                     <input
                       type="email"
                       className="form-control"
@@ -353,7 +424,7 @@ export function AuthModal({ auth }) {
                     />
                   </div>
                   <div className="form-group">
-                    <label className="form-label">Password</label>
+                    <label className="form-label required">Password</label>
                     <PasswordInput
                       value={artisanPassword}
                       onChange={e => setArtisanPassword(e.target.value)}
@@ -362,7 +433,7 @@ export function AuthModal({ auth }) {
                     />
                   </div>
                   <div className="form-group">
-                    <label className="form-label">Company Name</label>
+                    <label className="form-label required">Company Name</label>
                     <input
                       type="text"
                       className="form-control"
@@ -372,7 +443,7 @@ export function AuthModal({ auth }) {
                     />
                   </div>
                   <div className="form-group">
-                    <label className="form-label">Phone Number</label>
+                    <label className="form-label required">Phone Number</label>
                     <input
                       type="text"
                       className="form-control"
@@ -392,7 +463,7 @@ export function AuthModal({ auth }) {
                     />
                   </div>
                   <div className="form-group">
-                    <label className="form-label">Base City</label>
+                    <label className="form-label required">Base City</label>
                     <input
                       type="text"
                       className="form-control"
@@ -402,7 +473,7 @@ export function AuthModal({ auth }) {
                     />
                   </div>
                   <div className="form-group">
-                    <label className="form-label">Specializations (comma separated)</label>
+                    <label className="form-label required">Specializations (comma separated)</label>
                     <input
                       type="text"
                       className="form-control"

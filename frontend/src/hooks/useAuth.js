@@ -33,8 +33,13 @@ export function useAuth({ onLogout, onLoginSuccess } = {}) {
   const [clientName, setClientName] = useState('');
   const [clientEmail, setClientEmail] = useState('');
   const [clientPassword, setClientPassword] = useState('');
-  const [clientType, setClientType] = useState('interior_designer'); // interior_designer, firm, hobbyist, student, private
+  const [clientType, setClientType] = useState('interior_designer'); // interior_designer, architectural_firm, hobbyist, student, private
   const [clientPlannedUse, setClientPlannedUse] = useState('source_vendors'); // source_vendors, hiring, collaboration, reference
+  const [clientCompany, setClientCompany] = useState('');
+  const [clientPhone, setClientPhone] = useState('');
+  const [phoneOtp, setPhoneOtp] = useState('');
+  const [verifyingPhone, setVerifyingPhone] = useState(false);
+  const [pendingPhone, setPendingPhone] = useState('');
 
   // Artisan registration fields
   const [artisanName, setArtisanName] = useState('');
@@ -201,10 +206,13 @@ export function useAuth({ onLogout, onLoginSuccess } = {}) {
           name: clientName,
           email: clientEmail,
           password: clientPassword,
+          phoneNumber: clientPhone || undefined,
           role: 'client',
           clientProfile: {
             type: clientType,
-            plannedUse: clientPlannedUse
+            companyName: clientCompany || undefined,
+            plannedUse: clientPlannedUse,
+            phoneNumber: clientPhone || undefined
           }
         };
       } else {
@@ -212,6 +220,7 @@ export function useAuth({ onLogout, onLoginSuccess } = {}) {
           name: artisanName,
           email: artisanEmail,
           password: artisanPassword,
+          phoneNumber: artisanPhone || undefined,
           role: 'artisan',
           artisanProfile: {
             companyName: artisanCompany,
@@ -233,14 +242,14 @@ export function useAuth({ onLogout, onLoginSuccess } = {}) {
       }
 
       setVerificationEmail(payload.email);
+      setPendingPhone(data.phoneNumber || payload.phoneNumber || '');
       setVerifyingOtp(true);
-      setAuthSuccess('Account created! Please verify with the 6-digit OTP.');
-
-      // For easy dev testing, simulate receiving OTP
-      // We will parse the console log output or generate it in the backend
-      // But since we can't read backend console here easily, we show a standard message.
-      // We mock the dev OTP in UI helper:
-      setDevOtp('123456 (For development, check node backend server logs or enter any code if using debug fallback)');
+      setAuthSuccess(data.message || 'Account created! Enter the email OTP.');
+      setDevOtp(
+        data.deliveryMode === 'console'
+          ? 'Dev mode: copy the 6-digit OTP from the backend terminal (email).'
+          : 'Check your email inbox for the 6-digit OTP.'
+      );
     } catch (err) {
       setAuthError('Connection error.');
     }
@@ -302,9 +311,52 @@ export function useAuth({ onLogout, onLoginSuccess } = {}) {
       }
 
       completeAuthSession(data.token, data.user);
+
+      // Optional phone verification right after email verify when a phone was collected.
+      if (pendingPhone) {
+        setVerifyingPhone(true);
+        setShowAuthModal(true);
+        setAuthSuccess(`Email verified. Enter the OTP sent to ${pendingPhone}.`);
+        setDevOtp('Dev mode: copy the phone OTP from the backend terminal.');
+        await authFetch('/auth/send-phone-otp', {
+          method: 'POST',
+          body: { email: verificationEmail || data.user.email, phoneNumber: pendingPhone }
+        });
+      }
     } catch (err) {
       setAuthError('Connection error.');
     }
+  };
+
+  const handleVerifyPhoneOtp = async (e) => {
+    e.preventDefault();
+    setAuthError('');
+    setAuthSuccess('');
+    try {
+      const res = await authFetch('/auth/verify-phone-otp', {
+        method: 'POST',
+        body: { email: verificationEmail || user?.email, otp: phoneOtp }
+      });
+      const data = await res.json();
+      if (!res.ok) return setAuthError(data.message || 'Phone verification failed.');
+
+      if (data.user) setUser(data.user);
+      setVerifyingPhone(false);
+      setPhoneOtp('');
+      setPendingPhone('');
+      setShowAuthModal(false);
+      setAuthSuccess('Phone verified successfully.');
+      onLoginSuccess?.(data.user || user);
+    } catch (err) {
+      setAuthError('Connection error.');
+    }
+  };
+
+  const skipPhoneVerification = () => {
+    setVerifyingPhone(false);
+    setPhoneOtp('');
+    setPendingPhone('');
+    setShowAuthModal(false);
   };
 
   // Auth: 2FA Verification
@@ -838,6 +890,16 @@ export function useAuth({ onLogout, onLoginSuccess } = {}) {
     setClientType,
     clientPlannedUse,
     setClientPlannedUse,
+    clientCompany,
+    setClientCompany,
+    clientPhone,
+    setClientPhone,
+    verifyingPhone,
+    pendingPhone,
+    phoneOtp,
+    setPhoneOtp,
+    handleVerifyPhoneOtp,
+    skipPhoneVerification,
 
     // Artisan registration fields
     artisanName,
@@ -862,6 +924,8 @@ export function useAuth({ onLogout, onLoginSuccess } = {}) {
     handleRegister,
     handleVerifyOtp,
     handleVerify2Fa,
+    handleVerifyPhoneOtp,
+    skipPhoneVerification,
     handleGoogleLogin,
     demoLogin,
     handleHudDemoLogin,

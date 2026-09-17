@@ -7,18 +7,14 @@ const QRCode = require('qrcode');
 const User = require('../models/User');
 const Artisan = require('../models/Artisan');
 const { requireAuth } = require('../middleware/auth');
+const { sendEmailOtp, sendPhoneOtp, normalizePhone } = require('../utils/otpDelivery');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'supersecretscoutifykey12345';
 const TOTP_ISSUER = process.env.TOTP_ISSUER || 'Scoutify';
+const FIRM_TYPES = new Set(['architectural_firm', 'design_firm', 'company', 'firm']);
 
 function generateOTP() {
   return Math.floor(100000 + Math.random() * 900000).toString();
-}
-
-function logDevOtp(label, email, otp) {
-  console.log(`\n==========================================`);
-  console.log(`[DEV OTP] ${label} for ${email}: ${otp}`);
-  console.log(`==========================================\n`);
 }
 
 function publicUser(user) {
@@ -26,6 +22,8 @@ function publicUser(user) {
     id: user._id,
     name: user.name,
     email: user.email,
+    phoneNumber: user.phoneNumber || null,
+    phoneVerified: !!user.phoneVerified,
     role: user.role,
     subscriptionPlan: user.subscriptionPlan,
     twoFactorEnabled: user.twoFactorEnabled,
@@ -84,7 +82,7 @@ async function getAuthedUser(req, res) {
 // 1. REGISTER
 router.post('/register', async (req, res) => {
   try {
-    const { name, email, password, role, clientProfile, artisanProfile } = req.body;
+    const { name, email, password, role, clientProfile, artisanProfile, phoneNumber } = req.body;
 
     if (!name?.trim() || !email?.trim() || !password || !['client', 'artisan'].includes(role)) {
       return res.status(400).json({ message: 'Name, email, password, and a valid role are required.' });
@@ -93,39 +91,78 @@ router.post('/register', async (req, res) => {
       return res.status(400).json({ message: 'Password must be at least 8 characters.' });
     }
     const normalizedEmail = email.trim().toLowerCase();
+    const phone = normalizePhone(phoneNumber || artisanProfile?.phoneNumber || clientProfile?.phoneNumber);
+
+    if (role === 'client' && FIRM_TYPES.has(clientProfile?.type) && !clientProfile?.companyName?.trim()) {
+      return res.status(400).json({ message: 'Company name is required for firm / company registration.' });
+    }
+    if (role === 'artisan' && !artisanProfile?.companyName?.trim()) {
+      return res.status(400).json({ message: 'Company name is required for vendor registration.' });
+    }
 
     const existingUser = await User.findOne({ email: normalizedEmail });
     if (existingUser) {
       return res.status(400).json({ message: 'Email already registered.' });
     }
 
+    if (phone) {
+      if (phone.length < 10) {
+        return res.status(400).json({ message: 'Enter a valid 10-digit phone number.' });
+      }
+      const phoneTaken = await User.findOne({ phoneNumber: phone, isDeleted: { $ne: true } });
+      if (phoneTaken) {
+        return res.status(400).json({ message: 'Phone number already registered.' });
+      }
+    }
+
     const passwordHash = password ? await bcrypt.hash(password, 10) : undefined;
     const otp = generateOTP();
-    const otpExpires = new Date(Date.now() + 10 * 60 * 1000); // 10 mins
+    const otpExpires = new Date(Date.now() + 10 * 60 * 1000);
 
     const user = new User({
-      name,
+      name: name.trim(),
       email: normalizedEmail,
+      phoneNumber: phone || undefined,
       passwordHash,
       role,
       otp,
       otpExpires,
       isVerified: false,
-      clientProfile: role === 'client' ? clientProfile : undefined,
-      artisanProfile: role === 'artisan' ? artisanProfile : undefined
+      clientProfile: role === 'client' ? {
+        type: clientProfile?.type,
+        companyName: clientProfile?.companyName?.trim() || undefined,
+        plannedUse: clientProfile?.plannedUse,
+        phoneNumber: phone || clientProfile?.phoneNumber
+      } : undefined,
+      artisanProfile: role === 'artisan' ? {
+        ...artisanProfile,
+        phoneNumber: phone || artisanProfile?.phoneNumber,
+        email: normalizedEmail
+      } : undefined
     });
 
     await user.save();
 
-    // Log to console for development verification
-    logDevOtp('Verification OTP', email, otp);
+    const delivery = await sendEmailOtp({ to: normalizedEmail, otp, purpose: 'verification' });
 
     res.status(201).json({
-      message: 'Registration successful. OTP sent.',
-      email,
-      otpRequired: true
+      message: delivery.mode === 'smtp'
+        ? 'Registration successful. Check your email for the OTP.'
+        : 'Registration successful. OTP sent (check server console in development).',
+      email: normalizedEmail,
+      otpRequired: true,
+      deliveryMode: delivery.mode,
+      phoneNumber: phone || null
     });
   } catch (err) {
+    if (err?.code === 11000) {
+      const field = Object.keys(err.keyPattern || {})[0] || 'email';
+      return res.status(400).json({
+        message: field === 'phoneNumber'
+          ? 'Phone number already registered.'
+          : 'Email already registered.'
+      });
+    }
     console.error(err);
     res.status(500).json({ message: 'Server error during registration.' });
   }
@@ -152,24 +189,104 @@ router.post('/verify-otp', async (req, res) => {
     user.otpExpires = undefined;
     await user.save();
 
-    // Generate JWT
     const token = jwt.sign({ id: user._id, role: user.role }, JWT_SECRET, { expiresIn: '1d' });
 
     res.json({
-      message: 'OTP verified successfully.',
+      message: 'Email verified successfully.',
       token,
-      user: {
-        id: user._id,
-        name: user.name,
-        email: user.email,
-        role: user.role,
-        subscriptionPlan: user.subscriptionPlan,
-        twoFactorEnabled: user.twoFactorEnabled
-      }
+      user: publicUser(user)
     });
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: 'Server error during OTP verification.' });
+  }
+});
+
+// 2b. SEND PHONE OTP (optional verification after signup / from portal)
+router.post('/send-phone-otp', async (req, res) => {
+  try {
+    const email = req.body.email?.trim().toLowerCase();
+    const phone = normalizePhone(req.body.phoneNumber);
+
+    if (!email || !phone || phone.length < 10) {
+      return res.status(400).json({ message: 'Valid email and 10-digit phone number are required.' });
+    }
+
+    const user = await User.findOne({ email });
+    if (!user || user.isDeleted) {
+      return res.status(404).json({ message: 'User not found.' });
+    }
+    if (blockedAccountResponse(user, res)) return;
+
+    const phoneTaken = await User.findOne({
+      phoneNumber: phone,
+      _id: { $ne: user._id },
+      isDeleted: { $ne: true }
+    });
+    if (phoneTaken) {
+      return res.status(400).json({ message: 'Phone number already registered to another account.' });
+    }
+
+    const otp = generateOTP();
+    user.phoneNumber = phone;
+    user.phoneVerified = false;
+    user.phoneOtp = otp;
+    user.phoneOtpExpires = new Date(Date.now() + 10 * 60 * 1000);
+    if (user.role === 'client') {
+      user.clientProfile = { ...(user.clientProfile?.toObject?.() || user.clientProfile || {}), phoneNumber: phone };
+    }
+    if (user.role === 'artisan') {
+      user.artisanProfile = { ...(user.artisanProfile?.toObject?.() || user.artisanProfile || {}), phoneNumber: phone };
+    }
+    await user.save();
+
+    const delivery = await sendPhoneOtp({ phone, otp, purpose: 'verification' });
+
+    res.json({
+      message: delivery.mode === 'twilio'
+        ? 'OTP sent to your phone.'
+        : 'OTP sent (check server console in development).',
+      phoneNumber: phone,
+      deliveryMode: delivery.mode
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Server error sending phone OTP.' });
+  }
+});
+
+// 2c. VERIFY PHONE OTP
+router.post('/verify-phone-otp', async (req, res) => {
+  try {
+    const email = req.body.email?.trim().toLowerCase();
+    const { otp } = req.body;
+
+    if (!email || !otp) {
+      return res.status(400).json({ message: 'Email and OTP are required.' });
+    }
+
+    const user = await User.findOne({ email });
+    if (!user) {
+      return res.status(404).json({ message: 'User not found.' });
+    }
+    if (blockedAccountResponse(user, res)) return;
+
+    if (!user.phoneOtp || user.phoneOtp !== String(otp) || !user.phoneOtpExpires || user.phoneOtpExpires < new Date()) {
+      return res.status(400).json({ message: 'Invalid or expired phone OTP.' });
+    }
+
+    user.phoneVerified = true;
+    user.phoneOtp = undefined;
+    user.phoneOtpExpires = undefined;
+    await user.save();
+
+    res.json({
+      message: 'Phone number verified successfully.',
+      user: publicUser(user)
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Server error verifying phone OTP.' });
   }
 });
 
@@ -206,7 +323,7 @@ router.post('/login', async (req, res) => {
       user.otpExpires = new Date(Date.now() + 10 * 60 * 1000);
       await user.save();
 
-      logDevOtp('Verification OTP', email, otp);
+      await sendEmailOtp({ to: email, otp, purpose: 'verification' });
 
       return res.status(403).json({
         message: 'Account not verified. OTP sent.',
@@ -264,37 +381,56 @@ router.post('/verify-2fa', async (req, res) => {
   }
 });
 
-// 5. GOOGLE LOGIN (SIMULATED)
+// 5. GOOGLE LOGIN — prefers verified Google ID token (credential); falls back to mocked payload in dev.
 router.post('/google-login', async (req, res) => {
   try {
-    const { name, email, googleId, role } = req.body;
+    let { name, email, googleId, role, credential } = req.body;
 
-    let user = await User.findOne({ email });
+    if (credential) {
+      const googleRes = await fetch(`https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(credential)}`);
+      if (!googleRes.ok) {
+        return res.status(401).json({ message: 'Invalid Google credential.' });
+      }
+      const payload = await googleRes.json();
+      if (process.env.GOOGLE_CLIENT_ID && payload.aud !== process.env.GOOGLE_CLIENT_ID) {
+        return res.status(401).json({ message: 'Google client ID mismatch.' });
+      }
+      email = payload.email;
+      name = payload.name || payload.email;
+      googleId = payload.sub;
+    }
+
+    if (!email?.trim() || !googleId) {
+      return res.status(400).json({ message: 'Google account details are required.' });
+    }
+
+    const normalizedEmail = email.trim().toLowerCase();
+    let user = await User.findOne({ email: normalizedEmail });
 
     if (!user) {
-      if (!role) {
+      if (!role || !['client', 'artisan'].includes(role)) {
         return res.status(400).json({
-          message: 'Account not found. Please choose a role to register.',
+          message: 'Account not found. Please choose Consumer or Vendor to register with Google.',
           needsRegistration: true,
-          email,
+          email: normalizedEmail,
           name,
           googleId
         });
       }
 
       user = new User({
-        name,
-        email,
+        name: name || normalizedEmail,
+        email: normalizedEmail,
         googleId,
         role,
-        isVerified: true // Google Sign-in accounts are verified automatically
+        isVerified: true
       });
       await user.save();
     } else {
       if (blockedAccountResponse(user, res)) return;
       if (!user.googleId) {
-        // Link Google Account
         user.googleId = googleId;
+        user.isVerified = true;
         await user.save();
       }
     }
@@ -597,7 +733,7 @@ router.post('/forgot-password', async (req, res) => {
     user.passwordResetExpires = new Date(Date.now() + 10 * 60 * 1000); // 10 mins
     await user.save();
 
-    logDevOtp('Password reset OTP', email, otp);
+    await sendEmailOtp({ to: email, otp, purpose: 'reset' });
 
     res.json(genericResponse);
   } catch (err) {

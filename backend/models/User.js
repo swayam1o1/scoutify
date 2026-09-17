@@ -3,6 +3,11 @@ const mongoose = require('mongoose');
 const UserSchema = new mongoose.Schema({
   name: { type: String, required: true },
   email: { type: String, required: true, unique: true },
+  // Sparse unique: multiple users may omit phone, but two verified numbers cannot collide.
+  phoneNumber: { type: String, sparse: true, unique: true },
+  phoneVerified: { type: Boolean, default: false },
+  phoneOtp: { type: String },
+  phoneOtpExpires: { type: Date },
   passwordHash: { type: String },
   role: { type: String, enum: ['artisan', 'client', 'admin'], required: true },
   googleId: { type: String },
@@ -19,8 +24,10 @@ const UserSchema = new mongoose.Schema({
   isDeleted: { type: Boolean, default: false },
   deletedAt: { type: Date },
   clientProfile: {
-    type: { type: String }, // interior designer, firm, hobbyist, student, etc.
-    plannedUse: { type: String }
+    type: { type: String }, // interior_designer, architectural_firm, hobbyist, student, private_client
+    companyName: { type: String },
+    plannedUse: { type: String },
+    phoneNumber: { type: String }
   },
   artisanProfile: {
     companyName: { type: String },
@@ -35,7 +42,7 @@ const UserSchema = new mongoose.Schema({
     specialization: [{ type: String }],
     products: [{ type: String }],
     customTags: [{ type: String }],
-    portfolio: [{ type: String }] // Links or uploaded portfolio items
+    portfolio: [{ type: String }]
   },
   boards: [{
     name: { type: String, required: true },
