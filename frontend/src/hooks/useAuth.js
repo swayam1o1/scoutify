@@ -82,8 +82,27 @@ export function useAuth({ onLogout, onLoginSuccess } = {}) {
   const [phoneChangeStage, setPhoneChangeStage] = useState('');
   const [accountMessage, setAccountMessage] = useState('');
   const [accountError, setAccountError] = useState('');
+  const [toastKey, setToastKey] = useState(0);
   const [accountBusy, setAccountBusy] = useState(false);
   const [reauthBusy, setReauthBusy] = useState(false);
+
+  const clearAccountFeedback = () => {
+    setAccountMessage('');
+    setAccountError('');
+  };
+
+  const showAccountToast = (type, text) => {
+    const msg = String(text || '').trim();
+    if (!msg) return;
+    if (type === 'error') {
+      setAccountMessage('');
+      setAccountError(msg);
+    } else {
+      setAccountError('');
+      setAccountMessage(msg);
+    }
+    setToastKey(k => k + 1);
+  };
 
   // Profile forms
   const [profileForm, setProfileForm] = useState({
@@ -594,8 +613,7 @@ export function useAuth({ onLogout, onLoginSuccess } = {}) {
   // Profile: Update Artisan Profile (re-enters admin moderation on every save)
   const handleArtisanProfileSave = async (e) => {
     e.preventDefault();
-    setAccountError('');
-    setAccountMessage('');
+    clearAccountFeedback();
     try {
       const companyChanged =
         String(profileForm.companyName || '').trim().toLowerCase() !==
@@ -611,24 +629,23 @@ export function useAuth({ onLogout, onLoginSuccess } = {}) {
       const res = await authFetch('/artisan/profile', { token, method: 'POST', body });
       const data = await res.json();
       if (!res.ok) {
-        setAccountError(data.message || 'Failed to update listing.');
+        showAccountToast('error', data.message || 'Failed to update listing.');
         return;
       }
       setArtisanListingStatus(data.contactStatus || 'pending');
-      setAccountMessage(data.message || 'Listing saved.');
+      showAccountToast('success', data.message || 'Listing saved successfully.');
       setReauthForm({ currentPassword: '', totpCode: '', emailOtp: '' });
       await refreshUser();
     } catch (err) {
       console.error(err);
-      setAccountError('Connection error while saving listing.');
+      showAccountToast('error', 'Connection error while saving listing.');
     }
   };
 
   // Account: name + client profile fields
   const handleAccountProfileSave = async (e) => {
     e.preventDefault();
-    setAccountError('');
-    setAccountMessage('');
+    clearAccountFeedback();
     setAccountBusy(true);
     try {
       const body = { name: accountForm.name };
@@ -650,15 +667,15 @@ export function useAuth({ onLogout, onLoginSuccess } = {}) {
       const res = await authFetch('/auth/profile', { token, method: 'PUT', body });
       const data = await res.json();
       if (!res.ok) {
-        setAccountError(data.message || 'Could not save profile.');
+        showAccountToast('error', data.message || 'Could not save profile.');
         return;
       }
-      setAccountMessage('Profile details saved.');
+      showAccountToast('success', 'Profile details saved successfully.');
       setReauthForm({ currentPassword: '', totpCode: '', emailOtp: '' });
       await refreshUser();
     } catch (err) {
       console.error(err);
-      setAccountError('Connection error while saving profile.');
+      showAccountToast('error', 'Connection error while saving profile.');
     } finally {
       setAccountBusy(false);
     }
@@ -667,15 +684,14 @@ export function useAuth({ onLogout, onLoginSuccess } = {}) {
   // Account: change password while signed in
   const handleChangePassword = async (e) => {
     e.preventDefault();
-    setAccountError('');
-    setAccountMessage('');
+    clearAccountFeedback();
 
     if (passwordForm.newPassword !== passwordForm.confirmPassword) {
-      setAccountError('New password and confirmation do not match.');
+      showAccountToast('error', 'New password and confirmation do not match.');
       return;
     }
     if (passwordForm.newPassword.length < 8) {
-      setAccountError('New password must be at least 8 characters.');
+      showAccountToast('error', 'New password must be at least 8 characters.');
       return;
     }
 
@@ -693,14 +709,14 @@ export function useAuth({ onLogout, onLoginSuccess } = {}) {
       });
       const data = await res.json();
       if (!res.ok) {
-        setAccountError(data.message || 'Could not change password.');
+        showAccountToast('error', data.message || 'Could not change password.');
         return;
       }
       setPasswordForm({ currentPassword: '', newPassword: '', confirmPassword: '', totpCode: '', emailOtp: '' });
-      setAccountMessage('Password changed successfully.');
+      showAccountToast('success', 'Password changed successfully.');
     } catch (err) {
       console.error(err);
-      setAccountError('Connection error while changing password.');
+      showAccountToast('error', 'Connection error while changing password.');
     } finally {
       setAccountBusy(false);
     }
@@ -708,21 +724,22 @@ export function useAuth({ onLogout, onLoginSuccess } = {}) {
 
   const requestReauthEmailCode = async () => {
     setReauthBusy(true);
-    setAccountError('');
+    clearAccountFeedback();
     try {
       const res = await authFetch('/auth/reauth-challenge', { token, method: 'POST' });
       const data = await res.json();
       if (!res.ok) {
-        setAccountError(data.message || 'Could not send re-auth code.');
+        showAccountToast('error', data.message || 'Could not send re-auth code.');
         return;
       }
-      setAccountMessage(
+      showAccountToast(
+        'success',
         data.deliveryMode === 'console'
           ? 'Dev: copy the re-auth code from the backend terminal.'
-          : (data.message || 'Re-auth code sent.')
+          : (data.message || 'Re-auth code sent to your email.')
       );
     } catch (err) {
-      setAccountError('Connection error while requesting re-auth code.');
+      showAccountToast('error', 'Connection error while requesting re-auth code.');
     } finally {
       setReauthBusy(false);
     }
@@ -730,8 +747,7 @@ export function useAuth({ onLogout, onLoginSuccess } = {}) {
 
   const handleStartEmailChange = async (e) => {
     e.preventDefault();
-    setAccountError('');
-    setAccountMessage('');
+    clearAccountFeedback();
     setAccountBusy(true);
     try {
       const res = await authFetch('/auth/change-email', {
@@ -744,18 +760,19 @@ export function useAuth({ onLogout, onLoginSuccess } = {}) {
       });
       const data = await res.json();
       if (!res.ok) {
-        setAccountError(data.message || 'Could not start email change.');
+        showAccountToast('error', data.message || 'Could not start email change.');
         return;
       }
       setEmailChangeStage('confirm');
       setReauthForm({ currentPassword: '', totpCode: '', emailOtp: '' });
-      setAccountMessage(
+      showAccountToast(
+        'success',
         data.deliveryMode === 'console'
-          ? 'Dev: confirmation OTP is in the backend terminal (new email).'
-          : (data.message || 'Confirmation code sent to the new email.')
+          ? 'Confirmation code sent. Check the backend terminal for the OTP.'
+          : 'Confirmation code sent to your new email.'
       );
     } catch (err) {
-      setAccountError('Connection error while changing email.');
+      showAccountToast('error', 'Connection error while changing email.');
     } finally {
       setAccountBusy(false);
     }
@@ -763,8 +780,7 @@ export function useAuth({ onLogout, onLoginSuccess } = {}) {
 
   const handleConfirmEmailChange = async (e) => {
     e.preventDefault();
-    setAccountError('');
-    setAccountMessage('');
+    clearAccountFeedback();
     setAccountBusy(true);
     try {
       const res = await authFetch('/auth/confirm-email-change', {
@@ -774,16 +790,16 @@ export function useAuth({ onLogout, onLoginSuccess } = {}) {
       });
       const data = await res.json();
       if (!res.ok) {
-        setAccountError(data.message || 'Could not confirm email change.');
+        showAccountToast('error', data.message || 'Could not confirm email change.');
         return;
       }
       setEmailChangeStage('');
       setEmailChangeForm({ newEmail: '', otp: '' });
-      setAccountMessage(data.message || 'Email updated.');
+      showAccountToast('success', 'Email changed successfully.');
       if (data.user) setUser(data.user);
       else await refreshUser();
     } catch (err) {
-      setAccountError('Connection error while confirming email.');
+      showAccountToast('error', 'Connection error while confirming email.');
     } finally {
       setAccountBusy(false);
     }
@@ -791,8 +807,7 @@ export function useAuth({ onLogout, onLoginSuccess } = {}) {
 
   const handleStartPhoneChange = async (e) => {
     e.preventDefault();
-    setAccountError('');
-    setAccountMessage('');
+    clearAccountFeedback();
     setAccountBusy(true);
     try {
       const res = await authFetch('/auth/change-phone', {
@@ -805,18 +820,19 @@ export function useAuth({ onLogout, onLoginSuccess } = {}) {
       });
       const data = await res.json();
       if (!res.ok) {
-        setAccountError(data.message || 'Could not start phone change.');
+        showAccountToast('error', data.message || 'Could not start phone change.');
         return;
       }
       setPhoneChangeStage('confirm');
       setReauthForm({ currentPassword: '', totpCode: '', emailOtp: '' });
-      setAccountMessage(
+      showAccountToast(
+        'success',
         data.deliveryMode === 'console'
-          ? 'Dev: phone confirmation OTP is in the backend terminal.'
-          : (data.message || 'Confirmation code sent to the new phone.')
+          ? 'Confirmation code sent. Check the backend terminal for the OTP.'
+          : 'Confirmation code sent to your new phone number.'
       );
     } catch (err) {
-      setAccountError('Connection error while changing phone.');
+      showAccountToast('error', 'Connection error while changing phone.');
     } finally {
       setAccountBusy(false);
     }
@@ -824,8 +840,7 @@ export function useAuth({ onLogout, onLoginSuccess } = {}) {
 
   const handleConfirmPhoneChange = async (e) => {
     e.preventDefault();
-    setAccountError('');
-    setAccountMessage('');
+    clearAccountFeedback();
     setAccountBusy(true);
     try {
       const res = await authFetch('/auth/confirm-phone-change', {
@@ -835,16 +850,16 @@ export function useAuth({ onLogout, onLoginSuccess } = {}) {
       });
       const data = await res.json();
       if (!res.ok) {
-        setAccountError(data.message || 'Could not confirm phone change.');
+        showAccountToast('error', data.message || 'Could not confirm phone change.');
         return;
       }
       setPhoneChangeStage('');
       setPhoneChangeForm({ newPhone: '', otp: '' });
-      setAccountMessage(data.message || 'Phone updated.');
+      showAccountToast('success', 'Phone number changed successfully.');
       if (data.user) setUser(data.user);
       else await refreshUser();
     } catch (err) {
-      setAccountError('Connection error while confirming phone.');
+      showAccountToast('error', 'Connection error while confirming phone.');
     } finally {
       setAccountBusy(false);
     }
@@ -854,8 +869,7 @@ export function useAuth({ onLogout, onLoginSuccess } = {}) {
   const handleDeleteAccount = async (e) => {
     if (e?.preventDefault) e.preventDefault();
     if (!confirm('Delete your Scoutify account? Your listings and boards stop being visible immediately.')) return;
-    setAccountError('');
-    setAccountMessage('');
+    clearAccountFeedback();
     setAccountBusy(true);
     try {
       const res = await authFetch('/auth/account', {
@@ -865,14 +879,14 @@ export function useAuth({ onLogout, onLoginSuccess } = {}) {
       });
       const data = await res.json();
       if (!res.ok) {
-        setAccountError(data.message || 'Could not delete account.');
+        showAccountToast('error', data.message || 'Could not delete account.');
         return;
       }
+      showAccountToast('success', data.message || 'Account deleted successfully.');
       handleLogout();
-      alert(data.message || 'Account deleted.');
     } catch (err) {
       console.error(err);
-      setAccountError('Connection error while deleting account.');
+      showAccountToast('error', 'Connection error while deleting account.');
     } finally {
       setAccountBusy(false);
     }
@@ -947,19 +961,21 @@ export function useAuth({ onLogout, onLoginSuccess } = {}) {
 
   const startTotpSetup = async () => {
     setTotpBusy(true);
+    clearAccountFeedback();
     try {
       const res = await authFetch('/auth/2fa/setup', { token, method: 'POST' });
       const data = await res.json();
       if (!res.ok) {
-        alert(data.message || 'Could not start authenticator setup.');
+        showAccountToast('error', data.message || 'Could not start authenticator setup.');
         return;
       }
       setTotpQr(data.qrDataUrl);
       setTotpManualKey(data.manualKey);
       setTotpSetupCode('');
+      showAccountToast('success', 'Scan the QR code, then enter the app code to enable 2FA.');
     } catch (err) {
       console.error(err);
-      alert('Could not start authenticator setup.');
+      showAccountToast('error', 'Could not start authenticator setup.');
     } finally {
       setTotpBusy(false);
     }
@@ -968,6 +984,7 @@ export function useAuth({ onLogout, onLoginSuccess } = {}) {
   const confirmTotpEnable = async (e) => {
     e.preventDefault();
     setTotpBusy(true);
+    clearAccountFeedback();
     try {
       const res = await authFetch('/auth/2fa/enable', {
         token,
@@ -976,17 +993,17 @@ export function useAuth({ onLogout, onLoginSuccess } = {}) {
       });
       const data = await res.json();
       if (!res.ok) {
-        alert(data.message || 'Could not enable authenticator.');
+        showAccountToast('error', data.message || 'Could not enable authenticator.');
         return;
       }
       setUser(prev => ({ ...prev, twoFactorEnabled: true, mustEnable2FA: false }));
       setTotpQr('');
       setTotpManualKey('');
       setTotpSetupCode('');
-      alert('Google Authenticator is on. Next login will ask for the app code.');
+      showAccountToast('success', 'Google Authenticator enabled successfully.');
     } catch (err) {
       console.error(err);
-      alert('Could not enable authenticator.');
+      showAccountToast('error', 'Could not enable authenticator.');
     } finally {
       setTotpBusy(false);
     }
@@ -995,10 +1012,11 @@ export function useAuth({ onLogout, onLoginSuccess } = {}) {
   const disableTotp = async (e) => {
     e.preventDefault();
     if (user?.role === 'admin') {
-      alert('Administrators cannot disable two-factor authentication.');
+      showAccountToast('error', 'Administrators cannot disable two-factor authentication.');
       return;
     }
     setTotpBusy(true);
+    clearAccountFeedback();
     try {
       const res = await authFetch('/auth/2fa/disable', {
         token,
@@ -1007,15 +1025,15 @@ export function useAuth({ onLogout, onLoginSuccess } = {}) {
       });
       const data = await res.json();
       if (!res.ok) {
-        alert(data.message || 'Could not disable authenticator.');
+        showAccountToast('error', data.message || 'Could not disable authenticator.');
         return;
       }
       setUser(prev => ({ ...prev, twoFactorEnabled: false }));
       setTotpDisableCode('');
-      alert('Google Authenticator is off.');
+      showAccountToast('success', 'Google Authenticator disabled successfully.');
     } catch (err) {
       console.error(err);
-      alert('Could not disable authenticator.');
+      showAccountToast('error', 'Could not disable authenticator.');
     } finally {
       setTotpBusy(false);
     }
@@ -1147,6 +1165,8 @@ export function useAuth({ onLogout, onLoginSuccess } = {}) {
     phoneChangeStage,
     accountMessage,
     accountError,
+    toastKey,
+    clearAccountFeedback,
     accountBusy,
     reauthBusy,
     handleAccountProfileSave,

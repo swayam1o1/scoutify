@@ -50,24 +50,6 @@ function StatusBanner({ status }) {
   );
 }
 
-function FormFeedback({ message, error }) {
-  if (!message && !error) return null;
-
-  return (
-    <div style={{
-      background: error ? 'rgba(239,68,68,0.15)' : 'rgba(20,241,149,0.15)',
-      border: `1px solid ${error ? 'var(--color-danger)' : 'var(--color-primary)'}`,
-      color: error ? '#fca5a5' : '#a7f3d0',
-      padding: '10px 12px',
-      borderRadius: '8px',
-      fontSize: '13px',
-      marginBottom: '14px'
-    }}>
-      {error || message}
-    </div>
-  );
-}
-
 function TwoFactorPanel({ user, auth }) {
   const {
     totpQr,
@@ -186,15 +168,11 @@ function AccountSecurityPanel({ user, auth }) {
     handleStartEmailChange,
     handleConfirmEmailChange,
     handleStartPhoneChange,
-    handleConfirmPhoneChange,
-    accountMessage,
-    accountError
+    handleConfirmPhoneChange
   } = auth;
 
   return (
     <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '14px', marginTop: '10px' }}>
-      <FormFeedback message={accountMessage} error={accountError} />
-
       <h4 style={{ fontSize: '15px', marginBottom: '10px' }}>Password</h4>
       <form onSubmit={handleChangePassword}>
         <input
@@ -417,8 +395,6 @@ function ArtisanListingForm({ user, auth }) {
     setNewPortfolioLink,
     handleArtisanProfileSave,
     artisanListingStatus,
-    accountMessage,
-    accountError,
     reauthForm,
     setReauthForm,
     requestReauthEmailCode,
@@ -435,13 +411,22 @@ function ArtisanListingForm({ user, auth }) {
       <h3 style={{ marginBottom: '16px' }}>Public Directory Listing</h3>
 
       <StatusBanner status={artisanListingStatus} />
-      <FormFeedback message={accountMessage} error={accountError} />
 
       <form onSubmit={handleArtisanProfileSave}>
         <div className="grid-container grid-2">
           <div className="form-group">
             <label className="form-label">Company Name</label>
-            <input type="text" className="form-control" value={profileForm.companyName} onChange={setField('companyName')} required />
+            <input
+              type="text"
+              className="form-control"
+              value={profileForm.companyName}
+              onChange={setField('companyName')}
+              placeholder="Your studio / company name"
+              required
+            />
+            <span style={{ fontSize: '11px', color: 'var(--color-text-secondary)', display: 'block', marginTop: '6px' }}>
+              Change this name to update company details. Re-auth (password / 2FA) will appear below when it changes.
+            </span>
           </div>
           <div className="form-group">
             <label className="form-label">Phone Number</label>
@@ -452,7 +437,7 @@ function ArtisanListingForm({ user, auth }) {
         {companyChanged && (
           <div style={{ marginBottom: '14px', padding: '12px', borderRadius: '8px', border: '1px solid rgba(250, 204, 21, 0.35)', background: 'rgba(250, 204, 21, 0.08)' }}>
             <p style={{ fontSize: '12px', color: '#fde68a', marginBottom: '8px' }}>
-              Changing company name requires re-authentication.
+              Company name changed{user?.artisanProfile?.companyName ? ` from “${user.artisanProfile.companyName}”` : ''}. Enter password to save.
             </p>
             <ReauthFields
               user={user}
@@ -602,8 +587,6 @@ function ClientProfileForm({ user, auth }) {
     accountForm,
     setAccountForm,
     accountBusy,
-    accountMessage,
-    accountError,
     handleAccountProfileSave,
     reauthForm,
     setReauthForm,
@@ -619,7 +602,6 @@ function ClientProfileForm({ user, auth }) {
   return (
     <div className="glass-card">
       <h3 style={{ marginBottom: '14px' }}>Client Profile Details</h3>
-      <FormFeedback message={accountMessage} error={accountError} />
 
       <form onSubmit={handleAccountProfileSave}>
         <div className="form-group">
@@ -865,6 +847,12 @@ export function DashboardView({ user, auth, boards }) {
               <span style={{ color: 'var(--color-text-secondary)', display: 'block', fontSize: '13px' }}>Email</span>
               <strong style={{ fontSize: '14px', wordBreak: 'break-all' }}>{user.email}</strong>
             </div>
+            {user.role === 'artisan' && (
+              <div>
+                <span style={{ color: 'var(--color-text-secondary)', display: 'block', fontSize: '13px' }}>Company Name</span>
+                <strong>{user.artisanProfile?.companyName || 'Not set — edit on the right'}</strong>
+              </div>
+            )}
             <div>
               <span style={{ color: 'var(--color-text-secondary)', display: 'block', fontSize: '13px' }}>Account Role</span>
               <strong style={{ textTransform: 'capitalize' }}>{user.role}</strong>

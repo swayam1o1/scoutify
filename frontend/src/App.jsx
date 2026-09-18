@@ -18,6 +18,7 @@ import { AuthModal } from './components/auth/AuthModal';
 import { PaymentModal } from './components/payments/PaymentModal';
 import { PaymentReauthModal } from './components/auth/PaymentReauthModal';
 import { AdminView } from './components/admin/AdminView';
+import { Toast } from './components/ui/Toast';
 import { syncUrlForView, viewFromPath } from './utils/navigation';
 
 function App() {
@@ -156,6 +157,13 @@ function App() {
           )
         )}
       </main>
+
+      <Toast
+        message={auth.accountMessage}
+        error={auth.accountError}
+        toastKey={auth.toastKey}
+        onDismiss={auth.clearAccountFeedback}
+      />
 
       {auth.showAuthModal && <AuthModal auth={auth} />}
 
