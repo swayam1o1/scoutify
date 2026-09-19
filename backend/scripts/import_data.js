@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const mongoose = require('mongoose');
 const Artisan = require('../models/Artisan');
+const { CONTACT_STATUSES } = require('../constants/artisan');
 
 // MongoDB Connection
 const MONGO_URI = process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/scoutify';
@@ -74,7 +75,10 @@ async function run() {
         const instagram = row[3] || '';
         const city = row[4] || '';
         const personOfContact = row[5] || '';
-        const contactStatus = row[6] || 'verified';
+        // Spreadsheet column is free text; anything unrecognised is treated as a
+        // legacy verified listing so imports stay publicly searchable.
+        const rawStatus = (row[6] || '').trim().toLowerCase();
+        const contactStatus = CONTACT_STATUSES.includes(rawStatus) ? rawStatus : 'verified';
 
         // Find and update or insert
         const existing = await Artisan.findOne({

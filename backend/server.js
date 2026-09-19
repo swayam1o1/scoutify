@@ -10,6 +10,8 @@ const paymentsRoutes = require('./routes/payments');
 const artisanRoutes = require('./routes/artisan');
 const aiSearchRoutes = require('./routes/aiSearch');
 const boardsRoutes = require('./routes/boards');
+const adminRoutes = require('./routes/admin');
+const categoriesRoutes = require('./routes/categories');
 
 async function startServer() {
   await loadSecrets();
@@ -29,6 +31,8 @@ async function startServer() {
   app.use('/api/payments', paymentsRoutes);
   app.use('/api/artisan', artisanRoutes);
   app.use('/api/boards', boardsRoutes);
+  app.use('/api/admin', adminRoutes);
+  app.use('/api/categories', categoriesRoutes);
 
   // Health check endpoint
   app.get('/api/health', (req, res) => {

@@ -4,6 +4,8 @@ const jwt = require('jsonwebtoken');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const User = require('../models/User');
 const Artisan = require('../models/Artisan');
+const { sanitizeArtisanForUser } = require('../utils/sanitizeArtisan');
+const { PUBLIC_STATUS_FILTER } = require('../constants/artisan');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'supersecretscoutifykey12345';
 
@@ -43,7 +45,7 @@ function trigramSimilarity(leftValue, rightValue) {
 }
 
 async function semanticSearch(queryEmbedding, queryText, { city, limit = 3 }) {
-  const filter = { embedding: { $exists: true, $size: queryEmbedding.length } };
+  const filter = { ...PUBLIC_STATUS_FILTER, embedding: { $exists: true, $size: queryEmbedding.length } };
   if (city) filter.city = { $regex: city.trim(), $options: 'i' };
   const candidates = await Artisan.find(filter).lean();
   return candidates.map(({ embedding, ...artisan }) => {
@@ -131,7 +133,7 @@ Return the response ONLY as a JSON object, e.g. { "service": "extracted_service"
           if (semanticResults.length > 0) {
             return res.json({
               results: semanticResults.map((artisan, index) => ({
-                ...artisan,
+                ...sanitizeArtisanForUser(artisan),
                 matchPercentage: Math.max(0, Math.min(99, Math.round(artisan.combinedScore * 100))),
                 aiReasoning: `Ranked from ${Math.round(artisan.semanticScore * 100)}% semantic similarity and ${Math.round(artisan.nameScore * 100)}% name similarity.`
               })),
@@ -145,17 +147,14 @@ Return the response ONLY as a JSON object, e.g. { "service": "extracted_service"
         }
 
         // Step 2: Query database for matching candidates
-        let dbQuery = {};
-        const conditions = [];
+        const conditions = [PUBLIC_STATUS_FILTER];
         if (extracted.service) {
           conditions.push({ specialization: { $regex: extracted.service.trim(), $options: 'i' } });
         }
         if (extracted.city) {
           conditions.push({ city: { $regex: extracted.city.trim(), $options: 'i' } });
         }
-        if (conditions.length > 0) {
-          dbQuery = { $and: conditions };
-        }
+        const dbQuery = { $and: conditions };
 
         // Retrieve candidates (limit to 10 for AI recommendation matching)
         const candidates = await Artisan.find(dbQuery).limit(10);
@@ -196,7 +195,7 @@ Return the response ONLY as a JSON array of objects, e.g. [{"id": "artisan_id", 
           const artisan = candidates.find(c => c._id.toString() === meta.id);
           if (artisan) {
             results.push({
-              ...artisan.toObject(),
+              ...sanitizeArtisanForUser(artisan),
               matchPercentage: meta.matchPercentage,
               aiReasoning: meta.reasoning
             });
@@ -207,7 +206,7 @@ Return the response ONLY as a JSON array of objects, e.g. [{"id": "artisan_id", 
         if (results.length === 0) {
           candidates.slice(0, 3).forEach((c, idx) => {
             results.push({
-              ...c.toObject(),
+              ...sanitizeArtisanForUser(c),
               matchPercentage: 90 - idx * 5,
               aiReasoning: `Matched based on specialization in ${c.specialization.join(', ')} in ${c.city}.`
             });
@@ -243,6 +242,7 @@ Return the response ONLY as a JSON array of objects, e.g. [{"id": "artisan_id", 
     // Search Database
     const dbQuery = {
       $and: [
+        PUBLIC_STATUS_FILTER,
         { specialization: { $regex: matchedService, $options: 'i' } },
         { city: { $regex: matchedCity, $options: 'i' } }
       ]
@@ -252,7 +252,10 @@ Return the response ONLY as a JSON array of objects, e.g. [{"id": "artisan_id", 
 
     // If no exact match in target city, just grab top 3 for the service anywhere
     if (candidates.length === 0) {
-      candidates = await Artisan.find({ specialization: { $regex: matchedService, $options: 'i' } }).limit(3);
+      candidates = await Artisan.find({
+        ...PUBLIC_STATUS_FILTER,
+        specialization: { $regex: matchedService, $options: 'i' }
+      }).limit(3);
     }
 
     const mockReasonings = [
@@ -262,7 +265,7 @@ Return the response ONLY as a JSON array of objects, e.g. [{"id": "artisan_id", 
     ];
 
     const results = candidates.map((c, idx) => ({
-      ...c.toObject(),
+      ...sanitizeArtisanForUser(c),
       matchPercentage: 98 - idx * 6,
       aiReasoning: mockReasonings[idx] || `Verified specialist in ${c.city} matching your service requirements.`
     }));
