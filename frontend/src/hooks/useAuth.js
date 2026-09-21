@@ -80,6 +80,7 @@ export function useAuth({ onLogout, onLoginSuccess } = {}) {
   const [phoneChangeForm, setPhoneChangeForm] = useState({ newPhone: '', otp: '' });
   const [emailChangeStage, setEmailChangeStage] = useState(''); // '' | 'confirm'
   const [phoneChangeStage, setPhoneChangeStage] = useState('');
+  const [deleteConfirmText, setDeleteConfirmText] = useState('');
   const [accountMessage, setAccountMessage] = useState('');
   const [accountError, setAccountError] = useState('');
   const [toastKey, setToastKey] = useState(0);
@@ -871,23 +872,37 @@ export function useAuth({ onLogout, onLoginSuccess } = {}) {
     }
   };
 
-  // Account: soft delete, then drop the local session
+  // Account: soft delete + anonymize (SRS 3.4), then drop the local session
   const handleDeleteAccount = async (e) => {
     if (e?.preventDefault) e.preventDefault();
-    if (!confirm('Delete your Scoutify account? Your listings and boards stop being visible immediately.')) return;
+    if (String(deleteConfirmText || '').trim().toUpperCase() !== 'DELETE') {
+      showAccountToast('error', 'Type DELETE to confirm account deletion.');
+      return;
+    }
+    if (!confirm(
+      'Permanently delete your Scoutify account?\n\n' +
+      '• Personal data will be anonymized\n' +
+      '• Public vendor profile will leave search\n' +
+      '• Boards and portfolio links will be removed\n' +
+      '• Paid plan will be set to basic\n' +
+      '• You will be signed out everywhere'
+    )) return;
+
     clearAccountFeedback();
     setAccountBusy(true);
     try {
       const res = await authFetch('/auth/account', {
         token,
         method: 'DELETE',
-        body: { ...reauthForm }
+        body: { ...reauthForm, confirmText: deleteConfirmText }
       });
       const data = await res.json();
       if (!res.ok) {
         showAccountToast('error', data.message || 'Could not delete account.');
         return;
       }
+      setDeleteConfirmText('');
+      setReauthForm({ currentPassword: '', totpCode: '', emailOtp: '' });
       showAccountToast('success', data.message || 'Account deleted successfully.');
       handleLogout();
     } catch (err) {
@@ -1169,6 +1184,8 @@ export function useAuth({ onLogout, onLoginSuccess } = {}) {
     setPhoneChangeForm,
     emailChangeStage,
     phoneChangeStage,
+    deleteConfirmText,
+    setDeleteConfirmText,
     accountMessage,
     accountError,
     toastKey,

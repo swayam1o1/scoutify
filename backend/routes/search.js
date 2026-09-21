@@ -49,12 +49,15 @@ router.get('/', async (req, res) => {
     const totalResults = await Artisan.countDocuments(query);
     let results = [];
 
+    // Newest updates first so recently approved demo/test listings are visible.
+    const findQuery = Artisan.find(query).sort({ updatedAt: -1, _id: -1 });
+
     if (userPlan === 'basic') {
       // Basic / Guest view: limit to 10 results maximum
-      results = await Artisan.find(query).limit(10);
+      results = await findQuery.limit(10);
     } else {
       // Pro / Enterprise: unlimited results
-      results = await Artisan.find(query);
+      results = await findQuery;
     }
 
     const paywallActive = totalResults > 10 && userPlan === 'basic';

@@ -88,7 +88,6 @@ function normalizePhone(phone) {
   return digits;
 }
 
-/** Confirmation notice after password change or reset (SRS 3.3). */
 async function sendPasswordChangedNotice({ to, reason = 'changed' }) {
   const subject = 'Scoutify password updated';
   const text =
@@ -96,6 +95,11 @@ async function sendPasswordChangedNotice({ to, reason = 'changed' }) {
       ? 'Your Scoutify password was reset successfully. If you did not do this, contact support immediately.'
       : 'Your Scoutify password was changed successfully. If you did not do this, reset your password and contact support.';
 
+  return sendPlainEmail({ to, subject, text, logLabel: `Password ${reason} confirmation` });
+}
+
+/** Generic plain-text email helper (SMTP or console fallback). */
+async function sendPlainEmail({ to, subject, text, logLabel = 'Email' }) {
   const { SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_FROM } = process.env;
 
   if (SMTP_HOST && SMTP_USER && SMTP_PASS) {
@@ -115,12 +119,13 @@ async function sendPasswordChangedNotice({ to, reason = 'changed' }) {
       });
       return { channel: 'email', delivered: true, mode: 'smtp' };
     } catch (err) {
-      console.error('SMTP password notice failed, falling back to console:', err.message);
+      console.error(`SMTP ${logLabel} failed, falling back to console:`, err.message);
     }
   }
 
   console.log(`\n==========================================`);
-  console.log(`[DEV NOTICE] Password ${reason} confirmation for ${to}`);
+  console.log(`[DEV NOTICE] ${logLabel} for ${to}`);
+  console.log(text);
   console.log(`==========================================\n`);
   return { channel: 'email', delivered: true, mode: 'console' };
 }
@@ -129,5 +134,6 @@ module.exports = {
   sendEmailOtp,
   sendPhoneOtp,
   sendPasswordChangedNotice,
+  sendPlainEmail,
   normalizePhone
 };

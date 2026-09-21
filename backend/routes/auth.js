@@ -7,8 +7,9 @@ const QRCode = require('qrcode');
 const User = require('../models/User');
 const Artisan = require('../models/Artisan');
 const { requireAuth, signToken, bumpTokenVersion, isSessionValid } = require('../middleware/auth');
-const { sendEmailOtp, sendPhoneOtp, sendPasswordChangedNotice, normalizePhone } = require('../utils/otpDelivery');
+const { sendEmailOtp, sendPhoneOtp, sendPasswordChangedNotice, sendPlainEmail, normalizePhone } = require('../utils/otpDelivery');
 const { assertReauth, clearReauthChallenge, companyNameChanged, verifyTotp } = require('../utils/reauth');
+const { deleteUserAccount } = require('../utils/accountDeletion');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'supersecretscoutifykey12345';
 const TOTP_ISSUER = process.env.TOTP_ISSUER || 'Scoutify';
@@ -821,43 +822,37 @@ router.post('/reset-password', async (req, res) => {
   }
 });
 
-// 13. DELETE OWN ACCOUNT (soft delete) — requires re-auth
+// 13. DELETE OWN ACCOUNT (SRS 3.4) — confirm + re-auth, then soft-delete & anonymize
 router.delete('/account', requireAuth, async (req, res) => {
   try {
     const user = req.user;
-    if (user.role === 'admin') {
-      return res.status(403).json({ message: 'Admin accounts cannot be self-deleted.' });
-    }
+    const { currentPassword, totpCode, emailOtp, confirmText } = req.body || {};
 
-    const { currentPassword, totpCode, emailOtp } = req.body || {};
     const reauthErr = await assertReauth(user, { currentPassword, totpCode, emailOtp });
     if (reauthErr) return res.status(reauthErr.status).json(reauthErr);
 
-    user.isDeleted = true;
-    user.deletedAt = new Date();
-    user.otp = undefined;
-    user.otpExpires = undefined;
-    user.passwordResetOtp = undefined;
-    user.passwordResetExpires = undefined;
-    user.reauthOtp = undefined;
-    user.reauthOtpExpires = undefined;
-    user.pendingEmail = undefined;
-    user.pendingEmailOtp = undefined;
-    user.pendingEmailExpires = undefined;
-    user.pendingPhone = undefined;
-    user.pendingPhoneOtp = undefined;
-    user.pendingPhoneExpires = undefined;
-    user.twoFactorEnabled = false;
-    user.twoFactorSecret = undefined;
-    bumpTokenVersion(user);
-    await user.save();
-
-    // Pull the vendor listing out of public search straight away.
-    if (user.role === 'artisan') {
-      await Artisan.updateOne({ userId: user._id }, { $set: { contactStatus: 'rejected' } });
+    const noticeEmail = user.email;
+    const result = await deleteUserAccount(user, { confirmText });
+    if (!result.ok) {
+      return res.status(result.status).json({
+        message: result.message,
+        code: result.code
+      });
     }
 
-    res.json({ message: 'Account deleted. Existing sessions are now invalid.' });
+    await sendPlainEmail({
+      to: noticeEmail,
+      subject: 'Scoutify account deletion confirmed',
+      text:
+        'Your Scoutify account deletion request was completed. Personal information was anonymized, your public profile (if any) was removed from search, and any paid plan was set back to basic. Legally required records may be retained.',
+      logLabel: 'Account deletion confirmation'
+    });
+
+    res.json({
+      message: result.message,
+      sessionsRevoked: true,
+      subscriptionCancelled: !!result.meta?.subscriptionCancelled
+    });
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: 'Server error deleting account.' });

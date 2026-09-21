@@ -160,6 +160,8 @@ function AccountSecurityPanel({ user, auth }) {
     setPhoneChangeForm,
     emailChangeStage,
     phoneChangeStage,
+    deleteConfirmText,
+    setDeleteConfirmText,
     accountBusy,
     reauthBusy,
     handleChangePassword,
@@ -317,9 +319,20 @@ function AccountSecurityPanel({ user, auth }) {
         <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '14px', marginTop: '16px' }}>
           <h4 style={{ fontSize: '15px', marginBottom: '8px' }}>Delete Account</h4>
           <p style={{ fontSize: '12px', color: 'var(--color-text-secondary)', marginBottom: '10px' }}>
-            Removes your access and hides your data from Scoutify. Support can restore it on request.
+            This anonymizes your personal data, hides any public vendor profile from search,
+            clears boards / portfolio links, and sets your plan to basic. Type <strong>DELETE</strong> to confirm.
           </p>
           <form onSubmit={handleDeleteAccount}>
+            <input
+              type="text"
+              className="form-control"
+              placeholder='Type DELETE to confirm'
+              value={deleteConfirmText}
+              onChange={e => setDeleteConfirmText(e.target.value)}
+              required
+              style={{ marginBottom: '8px' }}
+              autoComplete="off"
+            />
             <ReauthFields
               user={user}
               values={reauthForm}
@@ -331,7 +344,7 @@ function AccountSecurityPanel({ user, auth }) {
             <button
               type="submit"
               className="btn btn-outline"
-              disabled={accountBusy}
+              disabled={accountBusy || String(deleteConfirmText).trim().toUpperCase() !== 'DELETE'}
               style={{ width: '100%', fontSize: '13px', padding: '8px', borderColor: 'var(--color-danger)', color: 'var(--color-danger)' }}
             >
               Delete My Account
