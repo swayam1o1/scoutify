@@ -13,7 +13,13 @@ const { deleteUserAccount } = require('../utils/accountDeletion');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'supersecretscoutifykey12345';
 const TOTP_ISSUER = process.env.TOTP_ISSUER || 'Scoutify';
-const FIRM_TYPES = new Set(['architectural_firm', 'design_firm', 'company', 'firm']);
+const FIRM_TYPES = new Set([
+  'architectural_firm',
+  'design_firm',
+  'company',
+  'firm',
+  'architect_firm'
+]);
 
 function generateOTP() {
   return Math.floor(100000 + Math.random() * 900000).toString();
@@ -31,6 +37,11 @@ function publicUser(user) {
     twoFactorEnabled: user.twoFactorEnabled,
     hasPassword: !!user.passwordHash,
     mustEnable2FA: user.role === 'admin' && !user.twoFactorEnabled,
+    onboardingCompleted: user.role === 'client' ? !!user.onboardingCompleted : true,
+    onboardingStep: user.role === 'client' ? Number(user.onboardingStep || 0) : 0,
+    dateOfBirth: user.dateOfBirth || null,
+    gender: user.gender || null,
+    profilePictureUrl: user.profilePictureUrl || null,
     isVerified: user.isVerified,
     isSuspended: user.isSuspended,
     clientProfile: user.clientProfile,
@@ -125,6 +136,8 @@ router.post('/register', async (req, res) => {
       otp,
       otpExpires,
       isVerified: false,
+      // Consumers complete SRS §4 wizard after verify; vendors fill details at register.
+      onboardingCompleted: role !== 'client',
       clientProfile: role === 'client' ? {
         type: clientProfile?.type,
         companyName: clientProfile?.companyName?.trim() || undefined,
@@ -420,7 +433,8 @@ router.post('/google-login', async (req, res) => {
         email: normalizedEmail,
         googleId,
         role,
-        isVerified: true
+        isVerified: true,
+        onboardingCompleted: role !== 'client'
       });
       await user.save();
     } else {
@@ -580,7 +594,8 @@ router.post('/demo-login', async (req, res) => {
         role: role === 'artisan' ? 'artisan' : 'client',
         isVerified: true,
         subscriptionPlan: plan,
-        twoFactorEnabled: false
+        twoFactorEnabled: false,
+        onboardingCompleted: true
       });
       if (role === 'artisan') {
         user.artisanProfile = {
@@ -645,6 +660,136 @@ router.get('/me', requireAuth, async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: 'Server error loading account.' });
+  }
+});
+
+// 8b. ONBOARDING WIZARD (SRS §4) — draft save + complete
+// Body.complete === false → save progress without unlocking restricted features
+router.post('/onboarding', requireAuth, async (req, res) => {
+  try {
+    const user = req.user;
+    if (user.role !== 'client') {
+      user.onboardingCompleted = true;
+      await user.save();
+      return res.json({ message: 'Onboarding not required for this role.', user: publicUser(user) });
+    }
+
+    const {
+      name,
+      dateOfBirth,
+      gender,
+      profilePictureUrl,
+      accountType,
+      companyName,
+      plannedUse,
+      usageType,
+      interests,
+      preferredLocation,
+      serviceArea,
+      geoLat,
+      geoLng,
+      geoAllowed,
+      onboardingStep,
+      complete
+    } = req.body;
+
+    const finishing = complete !== false && complete !== 'false';
+
+    if (name !== undefined) {
+      const trimmed = String(name).trim();
+      if (!trimmed) {
+        return res.status(400).json({ message: 'Full name is required.' });
+      }
+      user.name = trimmed;
+    } else if (finishing && !String(user.name || '').trim()) {
+      return res.status(400).json({ message: 'Full name is required to finish onboarding.' });
+    }
+
+    if (dateOfBirth !== undefined) {
+      if (!dateOfBirth) {
+        user.dateOfBirth = undefined;
+      } else {
+        const dob = new Date(dateOfBirth);
+        if (Number.isNaN(dob.getTime())) {
+          return res.status(400).json({ message: 'Enter a valid date of birth.' });
+        }
+        user.dateOfBirth = dob;
+      }
+    }
+
+    if (gender !== undefined) {
+      user.gender = String(gender || '').trim() || undefined;
+    }
+
+    if (profilePictureUrl !== undefined) {
+      const url = String(profilePictureUrl || '').trim();
+      user.profilePictureUrl = url || undefined;
+    }
+
+    const interestList = Array.isArray(interests)
+      ? interests.map(i => String(i).trim()).filter(Boolean).slice(0, 5)
+      : (user.clientProfile?.interests || []);
+
+    if (interestList.length > 5) {
+      return res.status(400).json({ message: 'Select up to 5 areas of interest.' });
+    }
+
+    const nextType = accountType !== undefined
+      ? (accountType || undefined)
+      : user.clientProfile?.type;
+    const nextCompany = companyName !== undefined
+      ? String(companyName || '').trim()
+      : user.clientProfile?.companyName;
+
+    if (finishing && FIRM_TYPES.has(nextType) && !nextCompany) {
+      return res.status(400).json({ message: 'Company name is required for firm / company accounts.' });
+    }
+
+    const prev = user.clientProfile || {};
+    user.clientProfile = {
+      type: nextType || undefined,
+      companyName: nextCompany || undefined,
+      plannedUse: plannedUse !== undefined
+        ? (plannedUse || undefined)
+        : prev.plannedUse,
+      usageType: usageType !== undefined
+        ? (usageType || undefined)
+        : prev.usageType,
+      phoneNumber: prev.phoneNumber,
+      interests: interestList,
+      preferredLocation: preferredLocation !== undefined
+        ? String(preferredLocation || '').trim() || undefined
+        : prev.preferredLocation,
+      serviceArea: serviceArea !== undefined
+        ? String(serviceArea || '').trim() || undefined
+        : prev.serviceArea,
+      geoLat: geoAllowed && geoLat != null ? Number(geoLat) : (geoAllowed === false ? undefined : prev.geoLat),
+      geoLng: geoAllowed && geoLng != null ? Number(geoLng) : (geoAllowed === false ? undefined : prev.geoLng),
+      geoAllowed: geoAllowed !== undefined ? !!geoAllowed : !!prev.geoAllowed
+    };
+
+    if (onboardingStep !== undefined && onboardingStep !== null && onboardingStep !== '') {
+      const step = Math.max(0, Math.min(5, Number(onboardingStep)));
+      if (!Number.isNaN(step)) user.onboardingStep = step;
+    }
+
+    if (finishing) {
+      user.onboardingCompleted = true;
+      user.onboardingStep = 5;
+    }
+
+    await user.save();
+
+    res.json({
+      message: finishing
+        ? 'Onboarding completed. Welcome to Scoutify.'
+        : 'Onboarding progress saved.',
+      completed: !!user.onboardingCompleted,
+      user: publicUser(user)
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Server error saving onboarding.' });
   }
 });
 

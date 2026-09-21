@@ -6,12 +6,13 @@
  *   /search        → search
  *   /plans         → pricing (alias: /pricing)
  *   /profile       → dashboard / account portal (alias: /dashboard)
+ *   /onboarding    → multi-step consumer onboarding (SRS §4)
  *   /boards        → boards list
  *   /boards/:id    → board details
  *   /admin         → admin console
  */
 
-const AUTH_VIEWS = new Set(['dashboard', 'boards', 'board-details', 'admin']);
+const AUTH_VIEWS = new Set(['dashboard', 'boards', 'board-details', 'admin', 'onboarding']);
 
 export function getPathname() {
   return window.location.pathname.replace(/\/+$/, '') || '/';
@@ -31,6 +32,8 @@ export function pathForView(view, { boardId } = {}) {
       return '/plans';
     case 'dashboard':
       return '/profile';
+    case 'onboarding':
+      return '/onboarding';
     case 'boards':
       return '/boards';
     case 'board-details':
@@ -50,6 +53,10 @@ export function parseLocation(pathname = getPathname()) {
 
   if (path === '/admin' || path.startsWith('/admin/')) {
     return { view: 'admin', boardId: null };
+  }
+
+  if (path === '/onboarding') {
+    return { view: 'onboarding', boardId: null };
   }
 
   if (path === '/plans' || path === '/pricing') {

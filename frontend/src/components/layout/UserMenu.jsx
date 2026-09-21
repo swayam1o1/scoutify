@@ -5,7 +5,8 @@ import {
   LogOut,
   Settings,
   ShieldCheck,
-  User as UserIcon
+  User as UserIcon,
+  ClipboardList
 } from 'lucide-react';
 
 function getInitials(name = '') {
@@ -121,14 +122,24 @@ export function UserMenu({ user, currentView, onNavigate, onOpenBoards, onLogout
           )}
 
           {user.role === 'client' && (
-            <button
-              type="button"
-              className={`user-menu-item ${currentView === 'boards' || currentView === 'board-details' ? 'is-active' : ''}`}
-              onClick={() => go(onOpenBoards)}
-            >
-              <FolderOpen size={16} />
-              <span>Boards</span>
-            </button>
+            <>
+              <button
+                type="button"
+                className={`user-menu-item ${currentView === 'boards' || currentView === 'board-details' ? 'is-active' : ''}`}
+                onClick={() => go(onOpenBoards)}
+              >
+                <FolderOpen size={16} />
+                <span>Boards</span>
+              </button>
+              <button
+                type="button"
+                className={`user-menu-item ${currentView === 'onboarding' ? 'is-active' : ''}`}
+                onClick={() => go(() => onNavigate('onboarding'))}
+              >
+                <ClipboardList size={16} />
+                <span>Edit onboarding</span>
+              </button>
+            </>
           )}
 
           {user.role !== 'admin' && (

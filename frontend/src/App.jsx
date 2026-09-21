@@ -18,8 +18,10 @@ import { AuthModal } from './components/auth/AuthModal';
 import { PaymentModal } from './components/payments/PaymentModal';
 import { PaymentReauthModal } from './components/auth/PaymentReauthModal';
 import { AdminView } from './components/admin/AdminView';
+import { OnboardingWizard } from './components/onboarding/OnboardingWizard';
 import { Toast } from './components/ui/Toast';
 import { parseLocation, syncUrlForView, isAuthRequiredView } from './utils/navigation';
+import { authFetch } from './api/client';
 
 function App() {
   const initial = parseLocation();
@@ -57,6 +59,10 @@ function App() {
     onLoginSuccess: (nextUser) => {
       if (nextUser?.role === 'admin') {
         navigate(nextUser.mustEnable2FA ? 'dashboard' : 'admin');
+        return;
+      }
+      if (nextUser?.role === 'client' && !nextUser.onboardingCompleted) {
+        navigate('onboarding');
       }
     }
   });
@@ -85,6 +91,16 @@ function App() {
     user: auth.user,
     applySession: auth.applySession
   });
+
+  // Force consumers through onboarding until completed (SRS §4)
+  useEffect(() => {
+    if (!auth.user) return;
+    if (auth.user.role !== 'client') return;
+    if (auth.user.onboardingCompleted) return;
+    if (currentView === 'onboarding') return;
+    navigate('onboarding', { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [auth.user, currentView]);
 
   // Browser back / forward
   useEffect(() => {
@@ -141,9 +157,12 @@ function App() {
   const isAdminUser = user?.role === 'admin';
   const adminNeeds2FA = isAdminUser && !!user?.mustEnable2FA;
   const activeBoard = boards.boards.find(b => b._id === boards.activeBoardId);
+  const needsOnboarding = user?.role === 'client' && !user?.onboardingCompleted;
+  const editingOnboarding = currentView === 'onboarding' && user?.role === 'client' && !!user?.onboardingCompleted;
 
-  // Admins without 2FA cannot open the admin console yet.
-  const safeView = currentView === 'admin' && adminNeeds2FA ? 'dashboard' : currentView;
+  const safeView = currentView === 'admin' && adminNeeds2FA
+    ? 'dashboard'
+    : (needsOnboarding ? 'onboarding' : currentView);
 
   useEffect(() => {
     if (currentView === 'admin' && adminNeeds2FA) {
@@ -163,7 +182,22 @@ function App() {
       />
 
       <main style={{ flex: 1 }}>
-        {safeView === 'search' && (
+        {safeView === 'onboarding' && user && (
+          <OnboardingWizard
+            user={user}
+            token={auth.token}
+            authFetch={authFetch}
+            editMode={editingOnboarding}
+            onDraftSaved={(nextUser) => auth.setUser(nextUser)}
+            onCancel={() => navigate('dashboard')}
+            onComplete={(nextUser) => {
+              auth.setUser(nextUser);
+              navigate(editingOnboarding ? 'dashboard' : 'search');
+            }}
+          />
+        )}
+
+        {safeView === 'search' && !needsOnboarding && (
           <SearchView
             search={search}
             boards={boards}
@@ -173,7 +207,7 @@ function App() {
           />
         )}
 
-        {safeView === 'pricing' && (
+        {safeView === 'pricing' && !needsOnboarding && (
           <PricingView
             onStartFreeSearch={() => navigate('search')}
             onUpgradeClick={payments.handleUpgradeClick}
@@ -184,18 +218,18 @@ function App() {
           <AdminView admin={admin} />
         )}
 
-        {safeView === 'dashboard' && user && (
-          <DashboardView user={user} auth={auth} boards={boards} />
+        {safeView === 'dashboard' && user && !needsOnboarding && (
+          <DashboardView user={user} auth={auth} boards={boards} onNavigate={navigate} />
         )}
 
-        {safeView === 'boards' && user && (
+        {safeView === 'boards' && user && !needsOnboarding && (
           <BoardsView
             boards={boards}
             onOpenBoard={(boardId) => navigate('board-details', { boardId })}
           />
         )}
 
-        {safeView === 'board-details' && user && (
+        {safeView === 'board-details' && user && !needsOnboarding && (
           activeBoard ? (
             <BoardDetailsView
               board={activeBoard}

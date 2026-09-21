@@ -34,11 +34,24 @@ const UserSchema = new mongoose.Schema({
   isSuspended: { type: Boolean, default: false },
   isDeleted: { type: Boolean, default: false },
   deletedAt: { type: Date },
+  // SRS §4 onboarding
+  onboardingCompleted: { type: Boolean, default: false },
+  onboardingStep: { type: Number, default: 0, min: 0, max: 5 },
+  dateOfBirth: { type: Date },
+  gender: { type: String }, // female | male | non_binary | prefer_not | other
+  profilePictureUrl: { type: String },
   clientProfile: {
-    type: { type: String }, // interior_designer, architectural_firm, hobbyist, student, private_client
+    type: { type: String }, // student, professional, architect, designer, firm, etc.
     companyName: { type: String },
     plannedUse: { type: String },
-    phoneNumber: { type: String }
+    usageType: { type: String }, // personal | professional
+    phoneNumber: { type: String },
+    interests: [{ type: String }], // up to 5 preferred artisan categories
+    preferredLocation: { type: String },
+    serviceArea: { type: String },
+    geoLat: { type: Number },
+    geoLng: { type: Number },
+    geoAllowed: { type: Boolean, default: false }
   },
   artisanProfile: {
     companyName: { type: String },

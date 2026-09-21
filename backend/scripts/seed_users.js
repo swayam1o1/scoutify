@@ -42,7 +42,8 @@ async function run() {
       isVerified: true,
       isSuspended: false,
       isDeleted: false,
-      tokenVersion: 0
+      tokenVersion: 0,
+      onboardingCompleted: true
     };
     if (entry.artisanProfile) {
       $set.artisanProfile = entry.artisanProfile;

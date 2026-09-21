@@ -595,7 +595,7 @@ function ArtisanListingForm({ user, auth }) {
   );
 }
 
-function ClientProfileForm({ user, auth }) {
+function ClientProfileForm({ user, auth, onNavigate }) {
   const {
     accountForm,
     setAccountForm,
@@ -614,7 +614,19 @@ function ClientProfileForm({ user, auth }) {
 
   return (
     <div className="glass-card">
-      <h3 style={{ marginBottom: '14px' }}>Client Profile Details</h3>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', marginBottom: '14px' }}>
+        <h3 style={{ margin: 0 }}>Client Profile Details</h3>
+        {onNavigate && (
+          <button
+            type="button"
+            className="btn btn-outline"
+            style={{ padding: '6px 12px', fontSize: '12px', whiteSpace: 'nowrap' }}
+            onClick={() => onNavigate('onboarding')}
+          >
+            Edit onboarding
+          </button>
+        )}
+      </div>
 
       <form onSubmit={handleAccountProfileSave}>
         <div className="form-group">
@@ -697,7 +709,7 @@ function ClientProfileForm({ user, auth }) {
   );
 }
 
-function ClientPortalPanel({ user, auth, boards }) {
+function ClientPortalPanel({ user, auth, boards, onNavigate }) {
   const {
     boards: boardList,
     activeBoardId,
@@ -713,7 +725,7 @@ function ClientPortalPanel({ user, auth, boards }) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-      <ClientProfileForm user={user} auth={auth} />
+      <ClientProfileForm user={user} auth={auth} onNavigate={onNavigate} />
 
       <div className="glass-card">
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border-color)', paddingBottom: '12px', marginBottom: '16px' }}>
@@ -824,7 +836,7 @@ function ClientPortalPanel({ user, auth, boards }) {
   );
 }
 
-export function DashboardView({ user, auth, boards }) {
+export function DashboardView({ user, auth, boards, onNavigate }) {
   return (
     <div className="dashboard-container animate-fade-in">
       <div className="dashboard-header">
@@ -889,7 +901,7 @@ export function DashboardView({ user, auth, boards }) {
             </p>
           </div>
         ) : (
-          <ClientPortalPanel user={user} auth={auth} boards={boards} />
+          <ClientPortalPanel user={user} auth={auth} boards={boards} onNavigate={onNavigate} />
         )}
       </div>
     </div>
