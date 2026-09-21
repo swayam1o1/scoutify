@@ -9,6 +9,8 @@ const UserSchema = new mongoose.Schema({
   phoneOtp: { type: String },
   phoneOtpExpires: { type: Date },
   passwordHash: { type: String },
+  // Bumped on password change/reset so older JWTs stop working (SRS 3.3).
+  tokenVersion: { type: Number, default: 0 },
   role: { type: String, enum: ['artisan', 'client', 'admin'], required: true },
   googleId: { type: String },
   isVerified: { type: Boolean, default: false },

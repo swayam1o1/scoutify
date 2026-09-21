@@ -712,8 +712,14 @@ export function useAuth({ onLogout, onLoginSuccess } = {}) {
         showAccountToast('error', data.message || 'Could not change password.');
         return;
       }
+      if (data.token) {
+        applySession(data.token, data.user || user);
+      }
       setPasswordForm({ currentPassword: '', newPassword: '', confirmPassword: '', totpCode: '', emailOtp: '' });
-      showAccountToast('success', 'Password changed successfully.');
+      showAccountToast(
+        'success',
+        data.message || 'Password changed successfully. Confirmation sent to your email.'
+      );
     } catch (err) {
       console.error(err);
       showAccountToast('error', 'Connection error while changing password.');

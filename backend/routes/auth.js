@@ -6,8 +6,8 @@ const speakeasy = require('speakeasy');
 const QRCode = require('qrcode');
 const User = require('../models/User');
 const Artisan = require('../models/Artisan');
-const { requireAuth } = require('../middleware/auth');
-const { sendEmailOtp, sendPhoneOtp, normalizePhone } = require('../utils/otpDelivery');
+const { requireAuth, signToken, bumpTokenVersion, isSessionValid } = require('../middleware/auth');
+const { sendEmailOtp, sendPhoneOtp, sendPasswordChangedNotice, normalizePhone } = require('../utils/otpDelivery');
 const { assertReauth, clearReauthChallenge, companyNameChanged, verifyTotp } = require('../utils/reauth');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'supersecretscoutifykey12345';
@@ -62,6 +62,10 @@ async function getAuthedUser(req, res) {
     const user = await User.findById(decoded.id);
     if (!user) {
       res.status(404).json({ message: 'User not found.' });
+      return null;
+    }
+    if (!isSessionValid(decoded, user)) {
+      res.status(401).json({ message: 'Session expired. Please sign in again.', code: 'SESSION_REVOKED' });
       return null;
     }
     return user;
@@ -181,7 +185,7 @@ router.post('/verify-otp', async (req, res) => {
     user.otpExpires = undefined;
     await user.save();
 
-    const token = jwt.sign({ id: user._id, role: user.role }, JWT_SECRET, { expiresIn: '1d' });
+    const token = signToken(user);
 
     res.json({
       message: 'Email verified successfully.',
@@ -332,7 +336,7 @@ router.post('/login', async (req, res) => {
       });
     }
 
-    const token = jwt.sign({ id: user._id, role: user.role }, JWT_SECRET, { expiresIn: '1d' });
+    const token = signToken(user);
     res.json({
       message: 'Login successful.',
       token,
@@ -361,7 +365,7 @@ router.post('/verify-2fa', async (req, res) => {
       return res.status(400).json({ message: 'Invalid authenticator code. Try the current 6-digit number.' });
     }
 
-    const token = jwt.sign({ id: user._id, role: user.role }, JWT_SECRET, { expiresIn: '1d' });
+    const token = signToken(user);
     res.json({
       message: '2FA verified successfully.',
       token,
@@ -435,7 +439,7 @@ router.post('/google-login', async (req, res) => {
       });
     }
 
-    const token = jwt.sign({ id: user._id, role: user.role }, JWT_SECRET, { expiresIn: '1d' });
+    const token = signToken(user);
 
     res.json({
       message: 'Google login successful.',
@@ -599,7 +603,7 @@ router.post('/demo-login', async (req, res) => {
 
 
 
-    const token = jwt.sign({ id: user._id, role: user.role }, JWT_SECRET, { expiresIn: '1d' });
+    const token = signToken(user);
 
     res.json({
       message: 'Demo login successful.',
@@ -721,8 +725,18 @@ router.post('/change-password', requireAuth, async (req, res) => {
     clearReauthChallenge(user);
 
     user.passwordHash = await bcrypt.hash(newPassword, 10);
+    // Invalidate other sessions; this request gets a fresh token (SRS 3.3).
+    bumpTokenVersion(user);
     await user.save();
-    res.json({ message: 'Password changed successfully.' });
+
+    await sendPasswordChangedNotice({ to: user.email, reason: 'changed' });
+
+    res.json({
+      message: 'Password changed successfully. A confirmation was sent to your email. Other sessions were signed out.',
+      token: signToken(user),
+      user: publicUser(user),
+      sessionsRevoked: true
+    });
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: 'Server error changing password.' });
@@ -791,9 +805,16 @@ router.post('/reset-password', async (req, res) => {
     user.passwordHash = await bcrypt.hash(newPassword, 10);
     user.passwordResetOtp = undefined;
     user.passwordResetExpires = undefined;
+    // All existing JWTs become invalid after reset (SRS 3.3).
+    bumpTokenVersion(user);
     await user.save();
 
-    res.json({ message: 'Password reset successfully. You can now sign in.' });
+    await sendPasswordChangedNotice({ to: user.email, reason: 'reset' });
+
+    res.json({
+      message: 'Password reset successfully. Other sessions were signed out. You can now sign in.',
+      sessionsRevoked: true
+    });
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: 'Server error resetting password.' });
@@ -828,6 +849,7 @@ router.delete('/account', requireAuth, async (req, res) => {
     user.pendingPhoneExpires = undefined;
     user.twoFactorEnabled = false;
     user.twoFactorSecret = undefined;
+    bumpTokenVersion(user);
     await user.save();
 
     // Pull the vendor listing out of public search straight away.
