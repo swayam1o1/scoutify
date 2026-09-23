@@ -7,7 +7,7 @@ const Artisan = require('../models/Artisan');
 const { sanitizeArtisanForUser } = require('../utils/sanitizeArtisan');
 const { PUBLIC_STATUS_FILTER } = require('../constants/artisan');
 
-const JWT_SECRET = process.env.JWT_SECRET || 'supersecretscoutifykey12345';
+const { JWT_SECRET, isSessionValid } = require('../middleware/auth');
 
 function cosineSimilarity(left, right) {
   if (!Array.isArray(left) || !Array.isArray(right) || left.length !== right.length || left.length === 0) return 0;
@@ -84,9 +84,10 @@ router.post('/', async (req, res) => {
       const token = authHeader.split(' ')[1];
       const decoded = jwt.verify(token, JWT_SECRET);
       const user = await User.findById(decoded.id);
-      if (user) {
-        userPlan = user.subscriptionPlan;
+      if (!user || !isSessionValid(decoded, user) || user.isDeleted || user.isSuspended) {
+        return res.status(401).json({ message: 'Session expired. Please sign in again.', code: 'SESSION_REVOKED' });
       }
+      userPlan = user.subscriptionPlan;
     } catch (err) {
       return res.status(401).json({ message: 'Invalid token.' });
     }

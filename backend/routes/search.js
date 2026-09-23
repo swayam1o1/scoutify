@@ -6,7 +6,7 @@ const Artisan = require('../models/Artisan');
 const { sanitizeArtisans } = require('../utils/sanitizeArtisan');
 const { PUBLIC_STATUS_FILTER } = require('../constants/artisan');
 
-const JWT_SECRET = process.env.JWT_SECRET || 'supersecretscoutifykey12345';
+const { JWT_SECRET, isSessionValid } = require('../middleware/auth');
 
 router.get('/', async (req, res) => {
   try {
@@ -35,9 +35,11 @@ router.get('/', async (req, res) => {
         const token = authHeader.split(' ')[1];
         const decoded = jwt.verify(token, JWT_SECRET);
         user = await User.findById(decoded.id);
-        if (user) {
+        if (user && isSessionValid(decoded, user) && !user.isDeleted && !user.isSuspended) {
           userPlan = user.subscriptionPlan;
           isLoggedIn = true;
+        } else {
+          user = null;
         }
       } catch (err) {
         // Token expired/invalid, treat as guest / basic
@@ -47,12 +49,15 @@ router.get('/', async (req, res) => {
     const totalResults = await Artisan.countDocuments(query);
     let results = [];
 
+    // Newest updates first so recently approved demo/test listings are visible.
+    const findQuery = Artisan.find(query).sort({ updatedAt: -1, _id: -1 });
+
     if (userPlan === 'basic') {
       // Basic / Guest view: limit to 10 results maximum
-      results = await Artisan.find(query).limit(10);
+      results = await findQuery.limit(10);
     } else {
       // Pro / Enterprise: unlimited results
-      results = await Artisan.find(query);
+      results = await findQuery;
     }
 
     const paywallActive = totalResults > 10 && userPlan === 'basic';

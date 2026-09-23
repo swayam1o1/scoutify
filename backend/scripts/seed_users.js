@@ -2,6 +2,8 @@ require('dotenv').config();
 const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 const User = require('../models/User');
+const Artisan = require('../models/Artisan');
+const { buildSearchText } = require('../utils/artisanFields');
 
 const MONGO_URI = process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/scoutify';
 const users = [
@@ -18,7 +20,11 @@ const users = [
       personOfContact: 'Demo Artisan',
       email: 'artisan@example.com',
       city: 'Bangalore',
-      phoneNumber: '9876501234'
+      phoneNumber: '9876501234',
+      specialization: ['Architectural services'],
+      products: [],
+      customTags: [],
+      portfolio: []
     }
   },
   { name: 'Scoutify Admin', email: 'admin@example.com', password: 'AdminPass123!', role: 'admin', subscriptionPlan: 'basic' }
@@ -35,7 +41,9 @@ async function run() {
       subscriptionPlan: entry.subscriptionPlan,
       isVerified: true,
       isSuspended: false,
-      isDeleted: false
+      isDeleted: false,
+      tokenVersion: 0,
+      onboardingCompleted: true
     };
     if (entry.artisanProfile) {
       $set.artisanProfile = entry.artisanProfile;
@@ -49,6 +57,26 @@ async function run() {
       { upsert: true }
     );
     console.log(`${entry.email} / ${entry.password} (${entry.role})`);
+
+    // Public search uses the Artisan collection — create a pending listing for demo vendor.
+    if (entry.role === 'artisan' && entry.artisanProfile) {
+      const user = await User.findOne({ email: entry.email });
+      const profile = entry.artisanProfile;
+      await Artisan.findOneAndUpdate(
+        { userId: user._id },
+        {
+          $set: {
+            ...profile,
+            userId: user._id,
+            contactStatus: 'pending',
+            searchText: buildSearchText(profile),
+            description: profile.description || ''
+          }
+        },
+        { upsert: true, new: true }
+      );
+      console.log(`  → Artisan listing pending: ${profile.companyName}`);
+    }
   }
 }
 

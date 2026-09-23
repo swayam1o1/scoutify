@@ -88,8 +88,52 @@ function normalizePhone(phone) {
   return digits;
 }
 
+async function sendPasswordChangedNotice({ to, reason = 'changed' }) {
+  const subject = 'Scoutify password updated';
+  const text =
+    reason === 'reset'
+      ? 'Your Scoutify password was reset successfully. If you did not do this, contact support immediately.'
+      : 'Your Scoutify password was changed successfully. If you did not do this, reset your password and contact support.';
+
+  return sendPlainEmail({ to, subject, text, logLabel: `Password ${reason} confirmation` });
+}
+
+/** Generic plain-text email helper (SMTP or console fallback). */
+async function sendPlainEmail({ to, subject, text, logLabel = 'Email' }) {
+  const { SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_FROM } = process.env;
+
+  if (SMTP_HOST && SMTP_USER && SMTP_PASS) {
+    try {
+      const nodemailer = require('nodemailer');
+      const transporter = nodemailer.createTransport({
+        host: SMTP_HOST,
+        port: Number(SMTP_PORT) || 587,
+        secure: String(SMTP_PORT) === '465',
+        auth: { user: SMTP_USER, pass: SMTP_PASS }
+      });
+      await transporter.sendMail({
+        from: SMTP_FROM || SMTP_USER,
+        to,
+        subject,
+        text
+      });
+      return { channel: 'email', delivered: true, mode: 'smtp' };
+    } catch (err) {
+      console.error(`SMTP ${logLabel} failed, falling back to console:`, err.message);
+    }
+  }
+
+  console.log(`\n==========================================`);
+  console.log(`[DEV NOTICE] ${logLabel} for ${to}`);
+  console.log(text);
+  console.log(`==========================================\n`);
+  return { channel: 'email', delivered: true, mode: 'console' };
+}
+
 module.exports = {
   sendEmailOtp,
   sendPhoneOtp,
+  sendPasswordChangedNotice,
+  sendPlainEmail,
   normalizePhone
 };
