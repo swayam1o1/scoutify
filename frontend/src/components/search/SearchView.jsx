@@ -45,6 +45,8 @@ export function SearchView({ search, boards, user, onRequireAuth, onNavigate }) 
     hasSearched,
     searching,
     isAiSearching,
+    aiExtracted,
+    aiSummary,
     handleSearch,
     handleAiSearch
   } = search;
@@ -53,6 +55,30 @@ export function SearchView({ search, boards, user, onRequireAuth, onNavigate }) 
   const isCapped = user?.subscriptionPlan === 'basic' || !user;
   const visibleResults = isCapped ? searchResults.slice(0, 10) : searchResults;
   const showPaywall = paywallActive || (isCapped && totalResults > 10);
+
+  const extractChips = [];
+  if (searchMode === 'ai' && aiExtracted) {
+    const pushChip = (label, value) => {
+      if (value == null || value === '') return;
+      extractChips.push({ label, value: String(value) });
+    };
+    pushChip('Use case', aiExtracted.useCase);
+    pushChip('Product', aiExtracted.productType || aiExtracted.service);
+    pushChip('Material', aiExtracted.material);
+    pushChip('Design', aiExtracted.designPreference);
+    pushChip('Location', aiExtracted.city || aiExtracted.location);
+    if (aiExtracted.distanceKm) pushChip('Distance', `${aiExtracted.distanceKm} km`);
+    pushChip('Quantity', aiExtracted.quantity);
+    pushChip('Project size', aiExtracted.projectSize);
+    if (aiExtracted.budgetMin != null || aiExtracted.budgetMax != null) {
+      const min = aiExtracted.budgetMin != null ? `₹${Number(aiExtracted.budgetMin).toLocaleString('en-IN')}` : '';
+      const max = aiExtracted.budgetMax != null ? `₹${Number(aiExtracted.budgetMax).toLocaleString('en-IN')}` : '';
+      pushChip('Budget', [min, max].filter(Boolean).join(' – '));
+    }
+    if (Array.isArray(aiExtracted.synonyms) && aiExtracted.synonyms.length) {
+      pushChip('Synonyms', aiExtracted.synonyms.slice(0, 4).join(', '));
+    }
+  }
 
   return (
     <div className="animate-fade-in">
@@ -110,11 +136,11 @@ export function SearchView({ search, boards, user, onRequireAuth, onNavigate }) 
           ) : (
             <form onSubmit={handleAiSearch} className="glass-card animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '16px', padding: '20px', textAlign: 'left' }}>
               <div>
-                <label className="form-label">Explain your project requirements in detail (specialty, aesthetic, budget, city)</label>
+                <label className="form-label">Explain your project requirements in detail (use case, material, design, budget, city, distance)</label>
                 <textarea
                   className="form-control"
                   rows={3}
-                  placeholder="I need a modern false ceiling expert in Tirupati to remodel a living room under 3 Lakhs..."
+                  placeholder='e.g. "Find handcrafted wooden furniture manufacturers near Bangalore for a hospitality project under 5 lakhs."'
                   value={aiQuery}
                   onChange={(e) => setAiQuery(e.target.value)}
                   onKeyDown={(e) => {
@@ -156,6 +182,29 @@ export function SearchView({ search, boards, user, onRequireAuth, onNavigate }) 
                 </span>
               </h3>
             </div>
+
+            {searchMode === 'ai' && (aiSummary || extractChips.length > 0) && (
+              <div className="glass-card" style={{ marginBottom: '18px', padding: '16px 18px' }}>
+                {aiSummary && (
+                  <p style={{ fontSize: '14px', color: 'var(--color-text-secondary)', marginBottom: extractChips.length ? '12px' : 0 }}>
+                    {aiSummary}
+                  </p>
+                )}
+                {extractChips.length > 0 && (
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                    {extractChips.map(chip => (
+                      <span
+                        key={`${chip.label}-${chip.value}`}
+                        className="badge badge-purple"
+                        style={{ fontSize: '11px', padding: '6px 10px', fontWeight: 500 }}
+                      >
+                        <strong style={{ opacity: 0.85 }}>{chip.label}:</strong> {chip.value}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
 
             {searchResults.length === 0 ? (
               <div className="glass-card" style={{ textAlign: 'center', padding: '40px', color: 'var(--color-text-secondary)' }}>

@@ -3,5 +3,7 @@ export const createSearchModeState = () => ({
   totalResults: 0,
   paywallActive: false,
   hasSearched: false,
-  searching: false
+  searching: false,
+  extracted: null,
+  summary: null
 });

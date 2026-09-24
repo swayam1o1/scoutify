@@ -19,7 +19,15 @@ export function useSearch({ token, user, onRequireAuth, demoLogin }) {
   const [aiQuery, setAiQuery] = useState('');
   const [aiLoaderStep, setAiLoaderStep] = useState(0);
 
-  const { results: searchResults, totalResults, paywallActive, hasSearched, searching } = searchByMode[searchMode];
+  const {
+    results: searchResults,
+    totalResults,
+    paywallActive,
+    hasSearched,
+    searching,
+    extracted: aiExtracted,
+    summary: aiSummary
+  } = searchByMode[searchMode];
   const isAiSearching = searchByMode.ai.searching;
 
   const updateSearchMode = (mode, patch) => {
@@ -114,7 +122,9 @@ export function useSearch({ token, user, onRequireAuth, demoLogin }) {
       updateSearchMode('ai', {
         results: data.results || [],
         totalResults: data.results?.length || 0,
-        paywallActive: false
+        paywallActive: false,
+        extracted: data.extracted || null,
+        summary: data.summary || null
       });
     } catch (err) {
       clearInterval(interval);
@@ -188,7 +198,9 @@ export function useSearch({ token, user, onRequireAuth, demoLogin }) {
       updateSearchMode('ai', {
         results: data.results || [],
         totalResults: data.results?.length || 0,
-        paywallActive: false
+        paywallActive: false,
+        extracted: data.extracted || null,
+        summary: data.summary || null
       });
     } catch (err) {
       clearInterval(interval);
@@ -223,6 +235,8 @@ export function useSearch({ token, user, onRequireAuth, demoLogin }) {
     hasSearched,
     searching,
     isAiSearching,
+    aiExtracted,
+    aiSummary,
     handleSearch,
     handleAiSearch,
     handleHudPaywallDemo,

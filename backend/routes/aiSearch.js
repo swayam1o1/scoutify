@@ -6,6 +6,13 @@ const User = require('../models/User');
 const Artisan = require('../models/Artisan');
 const { sanitizeArtisanForUser } = require('../utils/sanitizeArtisan');
 const { PUBLIC_STATUS_FILTER } = require('../constants/artisan');
+const {
+  parseExtractedJson,
+  regexExtract,
+  buildIntentPrompt,
+  buildSummaryPrompt,
+  serviceOrConditions
+} = require('../utils/searchIntent');
 
 const { JWT_SECRET, isSessionValid } = require('../middleware/auth');
 
@@ -44,26 +51,90 @@ function trigramSimilarity(leftValue, rightValue) {
   return (2 * intersection) / (left.length - 2 + right.length - 2);
 }
 
-async function semanticSearch(queryEmbedding, queryText, { city, limit = 3 }) {
-  const filter = { ...PUBLIC_STATUS_FILTER, embedding: { $exists: true, $size: queryEmbedding.length } };
+function profileBoost(artisan, extracted) {
+  const haystack = [
+    artisan.companyName,
+    artisan.city,
+    artisan.description,
+    artisan.searchText,
+    ...(artisan.specialization || []),
+    ...(artisan.products || []),
+    ...(artisan.customTags || [])
+  ].join(' ').toLowerCase();
+
+  let boost = 0;
+  const needles = [
+    extracted.material,
+    extracted.useCase,
+    extracted.designPreference,
+    extracted.productType,
+    ...(extracted.synonyms || [])
+  ].filter(Boolean);
+
+  for (const needle of needles) {
+    if (haystack.includes(String(needle).toLowerCase())) boost += 0.03;
+  }
+  return Math.min(boost, 0.15);
+}
+
+async function semanticSearch(queryEmbedding, queryText, { city, extracted, limit = 3 }) {
+  const filter = { ...PUBLIC_STATUS_FILTER, embedding: { $exists: true, $ne: [] } };
   if (city) filter.city = { $regex: city.trim(), $options: 'i' };
   const candidates = await Artisan.find(filter).lean();
   return candidates.map(({ embedding, ...artisan }) => {
     const semanticScore = cosineSimilarity(embedding, queryEmbedding);
     const nameScore = trigramSimilarity(artisan.companyName || '', queryText);
+    const boost = profileBoost(artisan, extracted || {});
     return {
       ...artisan,
       semanticScore,
       nameScore,
-      combinedScore: 0.75 * semanticScore + 0.25 * nameScore
+      combinedScore: 0.7 * semanticScore + 0.2 * nameScore + boost
     };
   }).sort((left, right) => right.combinedScore - left.combinedScore).slice(0, limit);
 }
 
-// Try initializing Gemini if key is provided
+function buildDbQuery(extracted) {
+  const conditions = [PUBLIC_STATUS_FILTER];
+  const serviceFilter = serviceOrConditions(extracted);
+  if (serviceFilter) conditions.push(serviceFilter);
+  if (extracted.city) {
+    conditions.push({
+      $or: [
+        { city: { $regex: extracted.city.trim(), $options: 'i' } },
+        { serviceArea: { $regex: extracted.city.trim(), $options: 'i' } }
+      ]
+    });
+  }
+  return { $and: conditions };
+}
+
 let genAI = null;
 if (process.env.GEMINI_API_KEY) {
   genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+}
+
+async function maybeSummarize(model, query, extracted, resultCount) {
+  try {
+    const summaryResult = await model.generateContent(buildSummaryPrompt(query, extracted, resultCount));
+    const text = summaryResult.response.text().trim();
+    return text || null;
+  } catch (err) {
+    console.warn('AI search summary skipped:', err.message);
+    return null;
+  }
+}
+
+function fallbackSummary(extracted, resultCount) {
+  const bits = [];
+  if (extracted.city || extracted.location) bits.push(`near ${extracted.city || extracted.location}`);
+  if (extracted.productType || extracted.service) bits.push(`for ${extracted.productType || extracted.service}`);
+  if (extracted.useCase) bits.push(`(${extracted.useCase})`);
+  if (extracted.material) bits.push(`material: ${extracted.material}`);
+  if (extracted.budgetMax) bits.push(`budget up to ₹${Math.round(extracted.budgetMax).toLocaleString('en-IN')}`);
+  const focus = bits.length ? bits.join(' ') : 'your brief';
+  if (resultCount === 0) return `No verified vendors matched ${focus}. Try broadening the category or city.`;
+  return `Found ${resultCount} verified vendor${resultCount === 1 ? '' : 's'} ${focus}. Rankings use AI interpretation of your prompt plus profile similarity.`;
 }
 
 router.post('/', async (req, res) => {
@@ -73,8 +144,6 @@ router.post('/', async (req, res) => {
       return res.status(400).json({ message: 'Search brief query is required.' });
     }
 
-    // Require authentication to prevent anonymous AI endpoint spamming
-    let userPlan = 'basic';
     const authHeader = req.headers.authorization;
     if (!authHeader) {
       return res.status(401).json({ message: 'Authentication required to use AI Sourcing.' });
@@ -87,100 +156,106 @@ router.post('/', async (req, res) => {
       if (!user || !isSessionValid(decoded, user) || user.isDeleted || user.isSuspended) {
         return res.status(401).json({ message: 'Session expired. Please sign in again.', code: 'SESSION_REVOKED' });
       }
-      userPlan = user.subscriptionPlan;
     } catch (err) {
       return res.status(401).json({ message: 'Invalid token.' });
     }
 
-    // If Gemini key is set, run live pipeline
     if (genAI) {
       try {
         const model = genAI.getGenerativeModel({ model: 'gemini-3.6-flash' });
 
-        // Step 1: Extract intent parameters
-        const intentPrompt = `Extract search keywords from the following natural language project brief. We need a service keyword (e.g. Architectural, False Ceiling, Painting, Create Art, Interior Designing, etc.) and a city keyword (e.g. Tirupati, Delhi, Pune, Bangalore, Lucknow, Ghaziabad, etc.). 
-Brief: "${query}"
-
-Return the response ONLY as a JSON object, e.g. { "service": "extracted_service", "city": "extracted_city" }. Do not add markdown code blocks, backticks, or any conversational text.`;
-
-        const intentResult = await model.generateContent(intentPrompt);
-        const intentResponse = await intentResult.response;
-        const intentText = intentResponse.text().trim();
-        
-        let extracted = { service: '', city: '' };
+        // Step 1: Structured intent extraction (SRS §5.1 + synonyms §5.2)
+        let extracted;
         try {
-          // Strip potential markdown wrapper backticks if returned
-          const cleanJsonStr = intentText.replace(/```json/g, '').replace(/```/g, '').trim();
-          extracted = JSON.parse(cleanJsonStr);
-        } catch (e) {
-          console.warn('Gemini JSON parse failed for intent extraction, fallback to regex:', intentText);
-          // Fallback parsing
-          const serviceMatch = query.match(/(architectural|false ceiling|interior|painting|contracting)/i);
-          extracted.service = serviceMatch ? serviceMatch[0] : '';
-          const cityMatch = query.match(/(tirupati|delhi|mumbai|pune|lucknow|kanpur|ghaziabad|noida)/i);
-          extracted.city = cityMatch ? cityMatch[0] : '';
+          const intentResult = await model.generateContent(buildIntentPrompt(query));
+          const intentText = intentResult.response.text().trim();
+          extracted = parseExtractedJson(intentText);
+        } catch (parseErr) {
+          console.warn('Gemini intent parse failed, using regex fallback:', parseErr.message);
+          extracted = regexExtract(query);
         }
 
-        // Prefer local vector ranking when the optional embedding backfill has run.
+        const embedText = extracted.expandedQuery || query;
+
+        // Prefer vector ranking when embeddings exist
         try {
           const embeddingModel = genAI.getGenerativeModel({ model: 'gemini-embedding-001' });
-          const embeddingResult = await embeddingModel.embedContent(query);
+          const embeddingResult = await embeddingModel.embedContent(embedText);
           const queryEmbedding = embeddingResult.embedding.values;
-          const semanticResults = await semanticSearch(queryEmbedding, query, {
+          const semanticResults = await semanticSearch(queryEmbedding, embedText, {
             city: extracted.city,
-            limit: 3
+            extracted,
+            limit: 5
           });
 
           if (semanticResults.length > 0) {
+            const results = semanticResults.map(artisan => ({
+              ...sanitizeArtisanForUser(artisan),
+              matchPercentage: Math.max(0, Math.min(99, Math.round(artisan.combinedScore * 100))),
+              aiReasoning: `Ranked from ${Math.round(artisan.semanticScore * 100)}% semantic similarity`
+                + (extracted.material || extracted.useCase
+                  ? ` aligned with ${[extracted.material, extracted.useCase, extracted.designPreference].filter(Boolean).join(', ')}.`
+                  : ` and ${Math.round(artisan.nameScore * 100)}% name similarity.`)
+            }));
+            const summary = (await maybeSummarize(model, query, extracted, results.length))
+              || fallbackSummary(extracted, results.length);
+
             return res.json({
-              results: semanticResults.map((artisan, index) => ({
-                ...sanitizeArtisanForUser(artisan),
-                matchPercentage: Math.max(0, Math.min(99, Math.round(artisan.combinedScore * 100))),
-                aiReasoning: `Ranked from ${Math.round(artisan.semanticScore * 100)}% semantic similarity and ${Math.round(artisan.nameScore * 100)}% name similarity.`
-              })),
+              results,
               extracted,
+              summary,
               semantic: true,
               simulated: false
             });
           }
         } catch (embeddingError) {
-          console.warn('Semantic ranking unavailable, continuing with existing AI ranking:', embeddingError.message);
+          console.warn('Semantic ranking unavailable, continuing with AI ranking:', embeddingError.message);
         }
 
-        // Step 2: Query database for matching candidates
-        const conditions = [PUBLIC_STATUS_FILTER];
-        if (extracted.service) {
-          conditions.push({ specialization: { $regex: extracted.service.trim(), $options: 'i' } });
-        }
-        if (extracted.city) {
-          conditions.push({ city: { $regex: extracted.city.trim(), $options: 'i' } });
-        }
-        const dbQuery = { $and: conditions };
+        // Step 2: DB candidates via service synonyms + city
+        let candidates = await Artisan.find(buildDbQuery(extracted)).limit(15);
 
-        // Retrieve candidates (limit to 10 for AI recommendation matching)
-        const candidates = await Artisan.find(dbQuery).limit(10);
+        // Relax city if nothing found
+        if (candidates.length === 0 && extracted.city) {
+          const serviceOnly = [PUBLIC_STATUS_FILTER];
+          const serviceFilter = serviceOrConditions(extracted);
+          if (serviceFilter) serviceOnly.push(serviceFilter);
+          candidates = await Artisan.find({ $and: serviceOnly }).limit(15);
+        }
+
         if (candidates.length === 0) {
+          const summary = fallbackSummary(extracted, 0);
           return res.json({
             results: [],
             extracted,
+            summary,
             simulated: false,
             message: 'No matching artisans found for the extracted keywords.'
           });
         }
 
-        // Step 3: Rank and generate custom compatibility reasoning
-        const rankPrompt = `Here is a client's project brief: "${query}"
+        // Step 3: Gemini rank + reasoning
+        const rankPrompt = `Client brief: "${query}"
 
-Here is a list of verified local artisans matching their city:
-${JSON.stringify(candidates.map(c => ({ id: c._id, name: c.companyName, city: c.city, specializations: c.specialization })))}
+Extracted attributes: ${JSON.stringify(extracted)}
 
-Select the top 3 best matching artisans. For each selected artisan, output their database ID, a match compatibility percentage (e.g. 95), and a custom, detailed reasoning sentence explaining why they are a great match for the client's specific brief (mentioning how their specialties, city, or styles align).
+Candidate vendors:
+${JSON.stringify(candidates.map(c => ({
+  id: c._id,
+  name: c.companyName,
+  city: c.city,
+  specializations: c.specialization,
+  products: c.products,
+  tags: c.customTags,
+  description: (c.description || '').slice(0, 180)
+})))}
 
-Return the response ONLY as a JSON array of objects, e.g. [{"id": "artisan_id", "matchPercentage": 95, "reasoning": "custom reasoning sentence"}]. Do not add markdown code blocks, backticks, or any other text.`;
+Select up to 5 best matches. Prefer vendors that fit use-case, product/material, design preference, and city.
+Return ONLY a JSON array: [{"id":"artisan_id","matchPercentage":95,"reasoning":"one sentence"}]
+No markdown.`;
 
         const rankResult = await model.generateContent(rankPrompt);
-        const rankResponse = await rankResult.response;
-        const rankText = rankResponse.text().trim();
+        const rankText = rankResult.response.text().trim();
 
         let matchMetadata = [];
         try {
@@ -190,10 +265,9 @@ Return the response ONLY as a JSON array of objects, e.g. [{"id": "artisan_id", 
           console.warn('Gemini JSON parse failed for ranking matching:', rankText);
         }
 
-        // Merge matches with full Artisan records
         const results = [];
         for (const meta of matchMetadata) {
-          const artisan = candidates.find(c => c._id.toString() === meta.id);
+          const artisan = candidates.find(c => c._id.toString() === String(meta.id));
           if (artisan) {
             results.push({
               ...sanitizeArtisanForUser(artisan),
@@ -203,86 +277,60 @@ Return the response ONLY as a JSON array of objects, e.g. [{"id": "artisan_id", 
           }
         }
 
-        // If JSON ranking output was broken, just return standard candidates with default match info
         if (results.length === 0) {
-          candidates.slice(0, 3).forEach((c, idx) => {
+          candidates.slice(0, 5).forEach((c, idx) => {
             results.push({
               ...sanitizeArtisanForUser(c),
               matchPercentage: 90 - idx * 5,
-              aiReasoning: `Matched based on specialization in ${c.specialization.join(', ')} in ${c.city}.`
+              aiReasoning: `Matched on ${[c.specialization?.join(', '), c.city].filter(Boolean).join(' · ')}.`
             });
           });
         }
 
+        const summary = (await maybeSummarize(model, query, extracted, results.length))
+          || fallbackSummary(extracted, results.length);
+
         return res.json({
           results,
           extracted,
+          summary,
           simulated: false
         });
-
       } catch (err) {
         console.error('Gemini live pipeline error, falling back to simulation:', err.message);
       }
     }
 
-    // --- SIMULATED AI MATCHING (FALLBACK / OFFLINE MODE) ---
-    // Extract keywords manually for mock responses
-    const queryLower = query.toLowerCase();
-    
-    let matchedService = 'Architectural';
-    if (queryLower.includes('ceiling')) matchedService = 'False Ceiling';
-    else if (queryLower.includes('paint')) matchedService = 'Painting';
-    else if (queryLower.includes('interior')) matchedService = 'Interior Designing';
-
-    let matchedCity = 'Tirupati';
-    if (queryLower.includes('delhi')) matchedCity = 'Delhi';
-    else if (queryLower.includes('lucknow')) matchedCity = 'Lucknow';
-    else if (queryLower.includes('pune')) matchedCity = 'Pune';
-    else if (queryLower.includes('mumbai')) matchedCity = 'Mumbai';
-
-    // Search Database
-    const dbQuery = {
-      $and: [
-        PUBLIC_STATUS_FILTER,
-        { specialization: { $regex: matchedService, $options: 'i' } },
-        { city: { $regex: matchedCity, $options: 'i' } }
-      ]
-    };
-
-    let candidates = await Artisan.find(dbQuery).limit(3);
-
-    // If no exact match in target city, just grab top 3 for the service anywhere
-    if (candidates.length === 0) {
+    // --- Offline / no-key fallback ---
+    const extracted = regexExtract(query);
+    let candidates = await Artisan.find(buildDbQuery(extracted)).limit(5);
+    if (candidates.length === 0 && extracted.service) {
       candidates = await Artisan.find({
         ...PUBLIC_STATUS_FILTER,
-        specialization: { $regex: matchedService, $options: 'i' }
-      }).limit(3);
+        specialization: { $regex: extracted.service, $options: 'i' }
+      }).limit(5);
     }
 
     const mockReasonings = [
-      `Selected for high-end modern integration. Their past verified projects perfectly match your requested style profile and operational scope.`,
-      `Highly recommended local specialist. Their verified response rate and specialized tools align with the structural details outlined in your brief.`,
-      `Strong choice for budget-optimized implementation. They have verified expertise in similar materials and delivery schedules.`
+      'Selected for profile alignment with your brief (category, city, and stated preferences).',
+      'Local specialist whose tags and specialization overlap your extracted requirements.',
+      'Strong candidate when weighing material / use-case keywords from your prompt.'
     ];
 
     const results = candidates.map((c, idx) => ({
       ...sanitizeArtisanForUser(c),
-      matchPercentage: 98 - idx * 6,
-      aiReasoning: mockReasonings[idx] || `Verified specialist in ${c.city} matching your service requirements.`
+      matchPercentage: 92 - idx * 6,
+      aiReasoning: mockReasonings[idx] || `Verified specialist in ${c.city}.`
     }));
 
-    // Add a tiny artificial delay to simulate API processing time (gorgeous UX!)
-    await new Promise(resolve => setTimeout(resolve, 1500));
+    await new Promise(resolve => setTimeout(resolve, 800));
 
     res.json({
       results,
-      extracted: {
-        service: matchedService,
-        city: matchedCity
-      },
+      extracted,
+      summary: fallbackSummary(extracted, results.length),
       simulated: true
     });
-
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: 'Error processing AI Matchmaker search.' });
