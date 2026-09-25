@@ -5,5 +5,6 @@ export const createSearchModeState = () => ({
   hasSearched: false,
   searching: false,
   extracted: null,
-  summary: null
+  summary: null,
+  suggestions: []
 });

@@ -11,6 +11,9 @@ const {
   regexExtract,
   buildIntentPrompt,
   buildSummaryPrompt,
+  buildSuggestionsPrompt,
+  buildFallbackSuggestions,
+  parseSuggestionsJson,
   serviceOrConditions
 } = require('../utils/searchIntent');
 
@@ -125,6 +128,19 @@ async function maybeSummarize(model, query, extracted, resultCount) {
   }
 }
 
+async function maybeSuggestions(model, query, extracted) {
+  const fallback = buildFallbackSuggestions(query, extracted);
+  if (!model) return fallback;
+  try {
+    const result = await model.generateContent(buildSuggestionsPrompt(query, extracted));
+    const parsed = parseSuggestionsJson(result.response.text().trim());
+    if (parsed.length > 0) return parsed;
+  } catch (err) {
+    console.warn('AI search suggestions skipped:', err.message);
+  }
+  return fallback;
+}
+
 function fallbackSummary(extracted, resultCount) {
   const bits = [];
   if (extracted.city || extracted.location) bits.push(`near ${extracted.city || extracted.location}`);
@@ -199,11 +215,13 @@ router.post('/', async (req, res) => {
             }));
             const summary = (await maybeSummarize(model, query, extracted, results.length))
               || fallbackSummary(extracted, results.length);
+            const suggestions = await maybeSuggestions(model, query, extracted);
 
             return res.json({
               results,
               extracted,
               summary,
+              suggestions,
               semantic: true,
               simulated: false
             });
@@ -225,10 +243,12 @@ router.post('/', async (req, res) => {
 
         if (candidates.length === 0) {
           const summary = fallbackSummary(extracted, 0);
+          const suggestions = await maybeSuggestions(model, query, extracted);
           return res.json({
             results: [],
             extracted,
             summary,
+            suggestions,
             simulated: false,
             message: 'No matching artisans found for the extracted keywords.'
           });
@@ -289,11 +309,13 @@ No markdown.`;
 
         const summary = (await maybeSummarize(model, query, extracted, results.length))
           || fallbackSummary(extracted, results.length);
+        const suggestions = await maybeSuggestions(model, query, extracted);
 
         return res.json({
           results,
           extracted,
           summary,
+          suggestions,
           simulated: false
         });
       } catch (err) {
@@ -329,6 +351,7 @@ No markdown.`;
       results,
       extracted,
       summary: fallbackSummary(extracted, results.length),
+      suggestions: buildFallbackSuggestions(query, extracted),
       simulated: true
     });
   } catch (err) {

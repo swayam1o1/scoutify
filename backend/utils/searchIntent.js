@@ -188,6 +188,47 @@ Extracted: ${JSON.stringify(extracted)}
 Return plain text only.`;
 }
 
+function buildSuggestionsPrompt(query, extracted) {
+  return `A Scoutify user searched vendors with this brief:
+"""${query}"""
+
+Extracted attributes: ${JSON.stringify(extracted)}
+
+Suggest 5 related natural-language search prompts they might try next.
+Vary city, material, use-case, budget, or nearby categories. Keep each prompt one short sentence.
+Do not repeat the original brief.
+
+Return ONLY a JSON array of strings, e.g. ["prompt one", "prompt two"].
+No markdown.`;
+}
+
+/** Deterministic related prompts when Gemini is unavailable. */
+function buildFallbackSuggestions(query, extracted = {}) {
+  const city = extracted.city || extracted.location || 'Bangalore';
+  const product = extracted.productType || extracted.service || 'interior specialists';
+  const material = extracted.material || 'wood';
+  const useCase = extracted.useCase || 'residential';
+  const design = extracted.designPreference || 'modern';
+
+  const suggestions = [
+    `Find ${design} ${product} near ${city} for a ${useCase} project`,
+    `Show ${material} specialists in ${city} for hospitality interiors`,
+    `${product} vendors within 25 km of ${city}`,
+    `Affordable ${product} under 3 lakhs near ${city}`,
+    `Handcrafted ${material} furniture makers for ${useCase} in ${city}`
+  ];
+
+  const original = String(query || '').trim().toLowerCase();
+  return [...new Set(suggestions.map(s => s.trim()).filter(s => s && s.toLowerCase() !== original))].slice(0, 5);
+}
+
+function parseSuggestionsJson(text) {
+  const clean = cleanJsonText(text);
+  const parsed = JSON.parse(clean);
+  if (!Array.isArray(parsed)) return [];
+  return parsed.map(asString).filter(Boolean).slice(0, 6);
+}
+
 function serviceOrConditions(extracted) {
   const terms = [
     extracted.service,
@@ -217,6 +258,9 @@ module.exports = {
   regexExtract,
   buildIntentPrompt,
   buildSummaryPrompt,
+  buildSuggestionsPrompt,
+  buildFallbackSuggestions,
+  parseSuggestionsJson,
   buildExpandedQuery,
   serviceOrConditions,
   cleanJsonText

@@ -47,8 +47,10 @@ export function SearchView({ search, boards, user, onRequireAuth, onNavigate }) 
     isAiSearching,
     aiExtracted,
     aiSummary,
+    aiSuggestions,
     handleSearch,
-    handleAiSearch
+    handleAiSearch,
+    handleAiSuggestion
   } = search;
 
   // Hard-cap: basic plan users never see more than 10 results regardless of state
@@ -241,6 +243,26 @@ export function SearchView({ search, boards, user, onRequireAuth, onNavigate }) 
                   />
                 )}
               </>
+            )}
+
+            {searchMode === 'ai' && Array.isArray(aiSuggestions) && aiSuggestions.length > 0 && (
+              <div className="glass-card" style={{ marginTop: '18px', padding: '16px 18px' }}>
+                <h4 style={{ margin: '0 0 10px', fontSize: '14px' }}>Related searches</h4>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                  {aiSuggestions.map((suggestion) => (
+                    <button
+                      key={suggestion}
+                      type="button"
+                      className="btn btn-secondary"
+                      style={{ padding: '8px 12px', fontSize: '12px', textAlign: 'left', maxWidth: '100%' }}
+                      onClick={() => handleAiSuggestion(suggestion)}
+                      disabled={searching}
+                    >
+                      {suggestion}
+                    </button>
+                  ))}
+                </div>
+              </div>
             )}
           </>
         ) : (

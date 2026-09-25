@@ -26,7 +26,8 @@ export function useSearch({ token, user, onRequireAuth, demoLogin }) {
     hasSearched,
     searching,
     extracted: aiExtracted,
-    summary: aiSummary
+    summary: aiSummary,
+    suggestions: aiSuggestions
   } = searchByMode[searchMode];
   const isAiSearching = searchByMode.ai.searching;
 
@@ -76,38 +77,30 @@ export function useSearch({ token, user, onRequireAuth, demoLogin }) {
     }
   };
 
-  const handleAiSearch = async (e) => {
-    if (e) e.preventDefault();
-    if (!aiQuery.trim()) return;
+  const runAiSearch = async (queryText) => {
+    const brief = String(queryText || '').trim();
+    if (!brief) return;
 
     if (!user) {
       onRequireAuth?.('login');
       return;
     }
 
+    setAiQuery(brief);
     const requestId = startSearchRequest('ai');
     setAiLoaderStep(0);
-
-    const steps = [
-      "Analyzing project requirements...",
-      "Matching candidate specialties...",
-      "Resolving location constraints...",
-      "Ranking matching profiles..."
-    ];
 
     let currentStep = 0;
     const interval = setInterval(() => {
       currentStep++;
-      if (currentStep < steps.length) {
-        setAiLoaderStep(currentStep);
-      }
+      if (currentStep < 4) setAiLoaderStep(currentStep);
     }, 600);
 
     try {
       const res = await authFetch('/search/ai', {
         token,
         method: 'POST',
-        body: { query: aiQuery }
+        body: { query: brief }
       });
 
       const data = await res.json();
@@ -124,7 +117,8 @@ export function useSearch({ token, user, onRequireAuth, demoLogin }) {
         totalResults: data.results?.length || 0,
         paywallActive: false,
         extracted: data.extracted || null,
-        summary: data.summary || null
+        summary: data.summary || null,
+        suggestions: Array.isArray(data.suggestions) ? data.suggestions : []
       });
     } catch (err) {
       clearInterval(interval);
@@ -134,6 +128,16 @@ export function useSearch({ token, user, onRequireAuth, demoLogin }) {
         updateSearchMode('ai', { searching: false });
       }
     }
+  };
+
+  const handleAiSearch = async (e) => {
+    if (e) e.preventDefault();
+    await runAiSearch(aiQuery);
+  };
+
+  const handleAiSuggestion = (suggestion) => {
+    setSearchMode('ai');
+    runAiSearch(suggestion);
   };
 
   // YC HUD Helpers
@@ -200,7 +204,8 @@ export function useSearch({ token, user, onRequireAuth, demoLogin }) {
         totalResults: data.results?.length || 0,
         paywallActive: false,
         extracted: data.extracted || null,
-        summary: data.summary || null
+        summary: data.summary || null,
+        suggestions: Array.isArray(data.suggestions) ? data.suggestions : []
       });
     } catch (err) {
       clearInterval(interval);
@@ -237,8 +242,10 @@ export function useSearch({ token, user, onRequireAuth, demoLogin }) {
     isAiSearching,
     aiExtracted,
     aiSummary,
+    aiSuggestions,
     handleSearch,
     handleAiSearch,
+    handleAiSuggestion,
     handleHudPaywallDemo,
     handleHudAiDemo,
     resetSearch
