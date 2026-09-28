@@ -195,11 +195,18 @@ function buildSuggestionsPrompt(query, extracted) {
 Extracted attributes: ${JSON.stringify(extracted)}
 
 Suggest 5 related natural-language search prompts they might try next.
-Vary city, material, use-case, budget, or nearby categories. Keep each prompt one short sentence.
+Vary city, material, use-case, design style, or nearby categories. Keep each prompt one short sentence.
+Never mention price, budget, cost, affordability, or amounts (e.g. "under 10 lakhs", "₹", "cheap").
 Do not repeat the original brief.
 
 Return ONLY a JSON array of strings, e.g. ["prompt one", "prompt two"].
 No markdown.`;
+}
+
+const PRICE_PATTERN = /(₹|\brs\.?\s*\d|\binr\b|\blakh|\blac\b|\bcrore|\bbudget|\bafford|\bcheap|\bprice|\bcost|\bunder\s+\d|\bbelow\s+\d|\bwithin\s+\d+\s*(k\b|lakh|lac|crore))/i;
+
+function hasPriceMention(text) {
+  return PRICE_PATTERN.test(String(text || ''));
 }
 
 /** Deterministic related prompts when Gemini is unavailable. */
@@ -214,19 +221,19 @@ function buildFallbackSuggestions(query, extracted = {}) {
     `Find ${design} ${product} near ${city} for a ${useCase} project`,
     `Show ${material} specialists in ${city} for hospitality interiors`,
     `${product} vendors within 25 km of ${city}`,
-    `Affordable ${product} under 3 lakhs near ${city}`,
+    `Traditional ${product} studios in ${city}`,
     `Handcrafted ${material} furniture makers for ${useCase} in ${city}`
   ];
 
   const original = String(query || '').trim().toLowerCase();
-  return [...new Set(suggestions.map(s => s.trim()).filter(s => s && s.toLowerCase() !== original))].slice(0, 5);
+  return [...new Set(suggestions.map(s => s.trim()).filter(s => s && s.toLowerCase() !== original && !hasPriceMention(s)))].slice(0, 5);
 }
 
 function parseSuggestionsJson(text) {
   const clean = cleanJsonText(text);
   const parsed = JSON.parse(clean);
   if (!Array.isArray(parsed)) return [];
-  return parsed.map(asString).filter(Boolean).slice(0, 6);
+  return parsed.map(asString).filter(s => s && !hasPriceMention(s)).slice(0, 6);
 }
 
 function serviceOrConditions(extracted) {
