@@ -156,8 +156,18 @@ export function SearchView({ search, boards, user, onRequireAuth, onNavigate }) 
                   onChange={(e) => setLocation(e.target.value)}
                 />
               </div>
-              <button type="submit" className="btn btn-primary" style={{ borderRadius: '10px' }}>
-                Find Artisans
+              <button
+                type="submit"
+                className="btn btn-primary"
+                style={{ borderRadius: '10px', opacity: searching ? 0.7 : 1, cursor: searching ? 'not-allowed' : 'pointer' }}
+                disabled={searching}
+              >
+                {searching ? (
+                  <>
+                    <span className="spin" style={{ width: 16, height: 16, border: '2px solid rgba(0,0,0,0.25)', borderLeftColor: '#000', borderRadius: '50%', display: 'inline-block' }} />
+                    Finding artisans…
+                  </>
+                ) : 'Find Artisans'}
               </button>
             </form>
           ) : (
@@ -196,6 +206,7 @@ export function SearchView({ search, boards, user, onRequireAuth, onNavigate }) 
                       className="btn btn-secondary"
                       style={{ position: 'absolute', top: 4, right: 4, padding: '2px 5px' }}
                       onClick={() => setAiImage('')}
+                      disabled={isAiSearching}
                       aria-label="Remove photo"
                     >
                       <X size={12} />
@@ -207,6 +218,7 @@ export function SearchView({ search, boards, user, onRequireAuth, onNavigate }) 
                   className="btn btn-secondary"
                   style={{ padding: '8px 14px', fontSize: '13px', gap: '6px' }}
                   onClick={() => (user ? photoInput.current?.click() : onRequireAuth('login'))}
+                  disabled={isAiSearching}
                 >
                   <ImagePlus size={16} /> {aiImage ? 'Change photo' : 'Search by photo'}
                 </button>
@@ -218,8 +230,20 @@ export function SearchView({ search, boards, user, onRequireAuth, onNavigate }) 
                 <input ref={photoInput} type="file" accept={IMAGE_ACCEPT} onChange={pickPhoto} style={{ display: 'none' }} />
               </div>
 
-              <button type="submit" className="btn btn-primary" style={{ width: '100%', justifyContent: 'center' }}>
-                <Sparkles size={18} /> {aiImage ? 'Find Vendors for This Item' : 'Match Me with Artisans'}
+              <button
+                type="submit"
+                className="btn btn-primary"
+                style={{ width: '100%', justifyContent: 'center', opacity: isAiSearching ? 0.7 : 1, cursor: isAiSearching ? 'not-allowed' : 'pointer' }}
+                disabled={isAiSearching}
+              >
+                {isAiSearching ? (
+                  <>
+                    <span className="spin" style={{ width: 16, height: 16, border: '2px solid rgba(0,0,0,0.25)', borderLeftColor: '#000', borderRadius: '50%', display: 'inline-block' }} />
+                    Finding vendors…
+                  </>
+                ) : (
+                  <><Sparkles size={18} /> {aiImage ? 'Find Vendors for This Item' : 'Match Me with Artisans'}</>
+                )}
               </button>
             </form>
           )}

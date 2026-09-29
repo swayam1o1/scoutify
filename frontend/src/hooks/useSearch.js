@@ -54,6 +54,7 @@ export function useSearch({ token, user, onRequireAuth, demoLogin }) {
   // Perform search
   const handleSearch = async (e) => {
     if (e) e.preventDefault();
+    if (e && searchByMode.standard.searching) return;
     const requestId = startSearchRequest('standard');
     try {
       const queryParams = new URLSearchParams({
@@ -139,6 +140,8 @@ export function useSearch({ token, user, onRequireAuth, demoLogin }) {
         suggestions: Array.isArray(data.suggestions) ? data.suggestions : [],
         ...extraPatch
       });
+      setAiQuery('');
+      setAiImage('');
     } catch (err) {
       clearInterval(interval);
       console.error(err);
@@ -151,6 +154,7 @@ export function useSearch({ token, user, onRequireAuth, demoLogin }) {
 
   const handleAiSearch = async (e) => {
     if (e) e.preventDefault();
+    if (isAiSearching) return;
     if (aiImage) await runImageSearch(aiImage, aiQuery);
     else await runAiSearch(aiQuery);
   };
