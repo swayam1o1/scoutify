@@ -29,7 +29,8 @@ export function useSearch({ token, user, onRequireAuth, demoLogin }) {
     extracted: aiExtracted,
     summary: aiSummary,
     suggestions: aiSuggestions,
-    searchedImage: aiSearchedImage
+    searchedImage: aiSearchedImage,
+    error: searchError
   } = searchByMode[searchMode];
   const isAiSearching = searchByMode.ai.searching;
 
@@ -39,7 +40,7 @@ export function useSearch({ token, user, onRequireAuth, demoLogin }) {
 
   const startSearchRequest = (mode) => {
     searchRequestId.current[mode] += 1;
-    updateSearchMode(mode, { searching: true, hasSearched: true });
+    updateSearchMode(mode, { searching: true, hasSearched: true, error: null });
     return searchRequestId.current[mode];
   };
 
@@ -127,7 +128,14 @@ export function useSearch({ token, user, onRequireAuth, demoLogin }) {
       if (!isLatestSearchRequest('ai', requestId)) return;
 
       if (!res.ok) {
-        alert(data.message || 'AI Matching failed.');
+        // Clear the previous results so they are not mistaken for this search's output
+        updateSearchMode('ai', {
+          ...createSearchModeState(),
+          hasSearched: true,
+          searching: true,
+          error: data.message || 'AI Matching failed.',
+          ...extraPatch
+        });
         return;
       }
 
@@ -145,6 +153,15 @@ export function useSearch({ token, user, onRequireAuth, demoLogin }) {
     } catch (err) {
       clearInterval(interval);
       console.error(err);
+      if (isLatestSearchRequest('ai', requestId)) {
+        updateSearchMode('ai', {
+          ...createSearchModeState(),
+          hasSearched: true,
+          searching: true,
+          error: 'Could not reach the server. Check your connection and try again.',
+          ...extraPatch
+        });
+      }
     } finally {
       if (isLatestSearchRequest('ai', requestId)) {
         updateSearchMode('ai', { searching: false });
@@ -268,6 +285,7 @@ export function useSearch({ token, user, onRequireAuth, demoLogin }) {
     paywallActive,
     hasSearched,
     searching,
+    searchError,
     isAiSearching,
     aiExtracted,
     aiSummary,

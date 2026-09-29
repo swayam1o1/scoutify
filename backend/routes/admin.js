@@ -8,6 +8,7 @@ const { requireAuth, requireAdmin, signToken } = require('../middleware/auth');
 const { toList, buildSearchText, pickListingSnapshot, diffListing } = require('../utils/artisanFields');
 const { sanitizeArtisanForUser, sanitizeCatalogue } = require('../utils/sanitizeArtisan');
 const { deleteImage } = require('../utils/storage');
+const { refreshListingEmbedding } = require('../utils/listingEmbedding');
 const {
   CONTACT_STATUSES,
   ADMIN_ASSIGNABLE_STATUSES,
@@ -277,6 +278,7 @@ router.post('/vendors', async (req, res) => {
     }
 
     const vendor = await Artisan.create(payload);
+    refreshListingEmbedding(vendor._id);
     await writeAudit(req.user, 'vendor.created', 'Artisan', vendor._id, {
       companyName: vendor.companyName,
       status: vendor.contactStatus

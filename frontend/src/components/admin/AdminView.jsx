@@ -1,5 +1,6 @@
 import { Eye, RefreshCw } from 'lucide-react';
 import { VendorDetailModal } from './VendorDetailModal.jsx';
+import { isLiveStatus } from './vendorStatus';
 
 const STATUS_FILTERS = ['pending', 'approved', 'rejected', 'verified', 'all'];
 
@@ -152,7 +153,7 @@ function VendorModerationPanel({ admin }) {
                   )}
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '6px' }}>
-                  <span className={`badge ${['approved', 'verified'].includes(vendor.contactStatus) ? '' : 'badge-purple'}`} style={{ fontSize: '10px', whiteSpace: 'nowrap' }}>
+                  <span className={`badge ${isLiveStatus(vendor.contactStatus) ? '' : 'badge-purple'}`} style={{ fontSize: '10px', whiteSpace: 'nowrap' }}>
                     {vendor.contactStatus?.toUpperCase()}
                   </span>
                   {vendor.isFirstSubmission ? (
@@ -176,27 +177,33 @@ function VendorModerationPanel({ admin }) {
                 >
                   <Eye size={14} /> View Details
                 </button>
-                <button
-                  className="btn btn-primary"
-                  style={{ padding: '6px 12px', fontSize: '12px' }}
-                  onClick={() => setVendorStatus(vendor._id, 'approved')}
-                >
-                  Approve
-                </button>
-                <button
-                  className="btn btn-outline"
-                  style={{ padding: '6px 12px', fontSize: '12px' }}
-                  onClick={() => setVendorStatus(vendor._id, 'rejected')}
-                >
-                  Reject
-                </button>
-                <button
-                  className="btn btn-outline"
-                  style={{ padding: '6px 12px', fontSize: '12px' }}
-                  onClick={() => setVendorStatus(vendor._id, 'pending')}
-                >
-                  Mark Pending
-                </button>
+                {!isLiveStatus(vendor.contactStatus) && (
+                  <button
+                    className="btn btn-primary"
+                    style={{ padding: '6px 12px', fontSize: '12px' }}
+                    onClick={() => setVendorStatus(vendor._id, 'approved')}
+                  >
+                    Approve
+                  </button>
+                )}
+                {vendor.contactStatus !== 'rejected' && (
+                  <button
+                    className="btn btn-outline"
+                    style={{ padding: '6px 12px', fontSize: '12px' }}
+                    onClick={() => setVendorStatus(vendor._id, 'rejected')}
+                  >
+                    Reject
+                  </button>
+                )}
+                {vendor.contactStatus !== 'pending' && (
+                  <button
+                    className="btn btn-outline"
+                    style={{ padding: '6px 12px', fontSize: '12px' }}
+                    onClick={() => setVendorStatus(vendor._id, 'pending')}
+                  >
+                    Mark Pending
+                  </button>
+                )}
                 <button
                   className="btn btn-outline"
                   style={{ padding: '6px 12px', fontSize: '12px', borderColor: 'var(--color-danger)', color: 'var(--color-danger)' }}

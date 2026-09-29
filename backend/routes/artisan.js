@@ -4,6 +4,7 @@ const Artisan = require('../models/Artisan');
 const { requireAuth, requireRole } = require('../middleware/auth');
 const { toList, buildSearchText, pickListingSnapshot } = require('../utils/artisanFields');
 const { PUBLIC_CONTACT_STATUSES } = require('../constants/artisan');
+const { refreshListingEmbedding } = require('../utils/listingEmbedding');
 const { assertReauth, clearReauthChallenge, companyNameChanged } = require('../utils/reauth');
 const { sanitizeCatalogue } = require('../utils/sanitizeArtisan');
 const { parseImageDataUrl, ImageUploadError } = require('../utils/imageUpload');
@@ -109,6 +110,7 @@ router.post('/profile', async (req, res) => {
       },
       { upsert: true, new: true }
     );
+    refreshListingEmbedding(listing._id);
 
     res.json({
       message: 'Listing saved. A Scoutify admin will review it before it appears in search.',
@@ -192,6 +194,7 @@ router.post('/catalogue', async (req, res) => {
 
     listing.catalogue.push(item);
     await listing.save();
+    refreshListingEmbedding(listing._id);
 
     res.status(201).json({
       message: 'Product added to your catalogue.',
@@ -215,6 +218,7 @@ router.delete('/catalogue/:itemId', async (req, res) => {
     item.deleteOne();
     await listing.save();
     await deleteImage(imageKey);
+    refreshListingEmbedding(listing._id);
 
     res.json({ message: 'Product removed from your catalogue.', catalogue: sanitizeCatalogue(listing.catalogue) });
   } catch (err) {

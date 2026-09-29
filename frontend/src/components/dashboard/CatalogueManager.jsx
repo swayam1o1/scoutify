@@ -86,10 +86,13 @@ export function CatalogueManager({ token, hasListing }) {
 
   return (
     <div className="glass-card">
-      <h3 style={{ marginBottom: '6px' }}>Product Catalogue</h3>
+      <h3 style={{ marginBottom: '6px' }}>
+        Product Catalogue <span style={{ fontSize: '12px', fontWeight: 500, color: 'var(--color-text-secondary)' }}>(optional)</span>
+      </h3>
       <p style={{ fontSize: '13px', color: 'var(--color-text-secondary)', marginBottom: '16px' }}>
-        Upload photos of products you make or supply. Clients who search with a photo of an item are matched to
-        vendors with similar catalogue products. Leave fields blank and Scoutify AI will fill them from the photo.
+        Clients can search with a photo of the item they want. You are matched from the Products, Specializations and
+        Description in your listing, so photos are not required. Adding a few product photos (1–2 per product type) makes
+        your matches more accurate and shows your products in results. Leave fields blank and Scoutify AI will fill them from the photo.
       </p>
 
       {!hasListing ? (

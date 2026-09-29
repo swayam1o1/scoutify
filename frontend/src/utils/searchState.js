@@ -7,5 +7,6 @@ export const createSearchModeState = () => ({
   extracted: null,
   summary: null,
   suggestions: [],
-  searchedImage: null
+  searchedImage: null,
+  error: null
 });

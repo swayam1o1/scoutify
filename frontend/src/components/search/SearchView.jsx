@@ -49,6 +49,7 @@ export function SearchView({ search, boards, user, onRequireAuth, onNavigate }) 
     paywallActive,
     hasSearched,
     searching,
+    searchError,
     isAiSearching,
     aiExtracted,
     aiSummary,
@@ -224,7 +225,7 @@ export function SearchView({ search, boards, user, onRequireAuth, onNavigate }) 
                 </button>
                 <span style={{ fontSize: '12px', color: 'var(--color-text-secondary)', flex: 1, minWidth: '180px' }}>
                   {aiImage
-                    ? "We'll match vendors whose catalogue has similar products."
+                    ? "We'll match vendors who make or supply similar products."
                     : 'Have a picture of the item you want? Upload it to find vendors who make it.'}
                 </span>
                 <input ref={photoInput} type="file" accept={IMAGE_ACCEPT} onChange={pickPhoto} style={{ display: 'none' }} />
@@ -261,6 +262,15 @@ export function SearchView({ search, boards, user, onRequireAuth, onNavigate }) 
               <p style={{ color: 'var(--color-text-secondary)' }}>Searching database...</p>
             </div>
           )
+        ) : searchError ? (
+          <div
+            role="alert"
+            className="glass-card"
+            style={{ maxWidth: '560px', margin: '20px auto', textAlign: 'center', padding: '28px', background: 'var(--tone-danger-bg)', border: '1px solid var(--tone-danger-border)', color: 'var(--tone-danger-text)' }}
+          >
+            <strong style={{ display: 'block', marginBottom: '6px' }}>Search failed</strong>
+            <span style={{ fontSize: '14px' }}>{searchError}</span>
+          </div>
         ) : hasSearched ? (
           <>
             <div className="results-header">

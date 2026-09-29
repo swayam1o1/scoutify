@@ -524,6 +524,9 @@ function ArtisanListingForm({ user, auth }) {
             value={profileForm.products.join(', ')}
             onChange={e => setProfileForm({ ...profileForm, products: e.target.value.split(',').map(item => item.trim()).filter(Boolean) })}
           />
+          <span style={{ fontSize: '11px', color: 'var(--color-text-secondary)', display: 'block', marginTop: '6px' }}>
+            Be specific (e.g. Cane chairs, Brass pendant lights). Client photo searches are matched against these.
+          </span>
         </div>
 
         <div className="form-group">

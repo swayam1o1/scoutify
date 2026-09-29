@@ -22,6 +22,13 @@ const { asString, buildClientImagePrompt, parseClientImageJson, imagePart } = re
 const { JWT_SECRET, isSessionValid } = require('../middleware/auth');
 
 const MIN_ITEM_SCORE = 0.55;
+const MIN_PROFILE_IMAGE_SCORE = 0.55;
+
+// Photo-to-profile cosine scores sit in a narrow band (~0.45 unrelated → ~0.85 near-identical),
+// so spread them onto a readable 0–99 scale.
+function imageMatchPercentage(combinedScore) {
+  return Math.max(1, Math.min(99, Math.round(((combinedScore - 0.4) / 0.45) * 100)));
+}
 
 function escapeRegex(value) {
   return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -75,6 +82,34 @@ function profileBoost(artisan, extracted) {
   return Math.min(boost, 0.15);
 }
 
+const GENERIC_WORDS = new Set(['services', 'service', 'work', 'works', 'design', 'designing', 'custom', 'made', 'items', 'products', 'other']);
+
+// Listing products / specializations that share a meaningful word with what the photo shows.
+function profileTermMatches(artisan, extracted, limit = 3) {
+  const words = new Set(
+    [extracted.productType, extracted.service, extracted.material, extracted.designPreference, ...(extracted.synonyms || [])]
+      .join(' ')
+      .toLowerCase()
+      .split(/[^a-z]+/)
+      .filter(word => word.length > 3 && !GENERIC_WORDS.has(word))
+  );
+  if (words.size === 0) return [];
+  const entries = [...(artisan.products || []), ...(artisan.specialization || []), ...(artisan.customTags || [])];
+  return [...new Set(entries.filter(entry =>
+    String(entry).toLowerCase().split(/[^a-z]+/).some(word => words.has(word) || (word.length > 3 && words.has(word.replace(/s$/, ''))))
+  ))].slice(0, limit);
+}
+
+function imageReasoning(artisan, extracted) {
+  const item = extracted.productType || 'the item in your photo';
+  if (artisan.matchedItems?.length) {
+    return `Catalogue product "${artisan.matchedItems[0].title}" looks ${artisan.matchedItems[0].similarity}% similar to your photo.`;
+  }
+  const terms = profileTermMatches(artisan, extracted);
+  if (terms.length) return `Lists ${terms.join(', ')} — a match for ${item}.`;
+  return `Vendor profile is a close match for ${item}.`;
+}
+
 function toMatchedItem(item, score) {
   return {
     _id: item._id,
@@ -120,9 +155,11 @@ async function semanticSearch(queryEmbedding, queryText, { city, extracted, limi
     let semanticScore;
     let nameScore = 0;
     let combinedScore;
+    let profileTerms = [];
     if (mode === 'image') {
-      semanticScore = Math.max(itemScore, profileScore * 0.9);
-      combinedScore = 0.85 * semanticScore + boost + (itemScore ? 0.05 : 0);
+      profileTerms = profileTermMatches(artisan, extracted || {});
+      semanticScore = Math.max(itemScore, profileScore);
+      combinedScore = semanticScore + boost + (itemScore ? 0.05 : 0) + (profileTerms.length ? 0.08 : 0);
     } else {
       semanticScore = Math.max(profileScore, itemScore);
       nameScore = trigramSimilarity(artisan.companyName || '', queryText);
@@ -135,10 +172,14 @@ async function semanticSearch(queryEmbedding, queryText, { city, extracted, limi
       itemScore,
       nameScore,
       combinedScore,
+      profileTerms,
       matchedItems: itemMatches.map(({ item, score }) => toMatchedItem(item, score))
     };
   })
     .filter(artisan => artisan.semanticScore > 0)
+    // Photo search: profile-only vendors need a listed product match or a strong profile similarity.
+    .filter(artisan => mode !== 'image' || artisan.itemScore > 0 || artisan.profileTerms.length > 0
+      || artisan.semanticScore >= MIN_PROFILE_IMAGE_SCORE)
     .sort((left, right) => right.combinedScore - left.combinedScore)
     .slice(0, limit);
 }
@@ -468,6 +509,10 @@ router.post('/image', async (req, res) => {
       }
     }
 
+    // If the vision call failed (quota / overload), further Gemini calls would almost
+    // certainly fail too and only burn more quota, so summary and suggestions fall back.
+    const followUpModel = extracted ? model : null;
+
     if (!extracted) {
       if (!note) {
         return res.status(503).json({
@@ -498,41 +543,47 @@ router.post('/image', async (req, res) => {
             mode: 'image'
           });
         }
-        results = semanticResults.map(artisan => ({
+        results = semanticResults.map(({ profileTerms, ...artisan }) => ({
           ...sanitizeArtisanForUser(artisan),
-          matchPercentage: Math.max(0, Math.min(99, Math.round(artisan.combinedScore * 100))),
-          aiReasoning: artisan.matchedItems.length
-            ? `Catalogue product "${artisan.matchedItems[0].title}" looks ${artisan.matchedItems[0].similarity}% similar to your photo.`
-            : `Vendor profile is a ${Math.round(artisan.semanticScore * 100)}% match for ${extracted.productType || 'this item'}.`
+          matchPercentage: imageMatchPercentage(artisan.combinedScore),
+          aiReasoning: imageReasoning(artisan, extracted)
         }));
       }
     } catch (err) {
       console.warn('Image semantic ranking unavailable, using keyword match:', err.message);
     }
 
-    if (results.length === 0) {
-      let candidates = await Artisan.find(buildDbQuery(extracted)).select('-embedding -catalogue.embedding').limit(6);
+    // Top up with keyword matches on listing products / catalogue, covering vendors that
+    // have no embedding yet and the case where the embedding service is down.
+    const IMAGE_RESULT_LIMIT = 6;
+    const hasKeywordTerms = [extracted.productType, extracted.service, extracted.material, ...(extracted.synonyms || [])].some(Boolean);
+    if (results.length < IMAGE_RESULT_LIMIT && hasKeywordTerms) {
+      const seen = results.map(r => r._id);
+      const keywordQuery = includeCity => ({
+        $and: [buildDbQuery(extracted, { includeCity }), { _id: { $nin: seen } }]
+      });
+      const remaining = IMAGE_RESULT_LIMIT - results.length;
+      let candidates = await Artisan.find(keywordQuery(true)).select('-embedding -catalogue.embedding').limit(remaining);
       if (candidates.length === 0 && extracted.city) {
-        candidates = await Artisan.find(buildDbQuery(extracted, { includeCity: false }))
-          .select('-embedding -catalogue.embedding')
-          .limit(6);
+        candidates = await Artisan.find(keywordQuery(false)).select('-embedding -catalogue.embedding').limit(remaining);
       }
-      results = candidates.map((c, idx) => {
+      const floor = results.length ? Math.min(...results.map(r => r.matchPercentage)) : 85;
+      results = results.concat(candidates.map((c, idx) => {
         const matchedItems = keywordCatalogueMatches(c.catalogue, extracted);
         return {
           ...sanitizeArtisanForUser(c),
           matchedItems,
-          matchPercentage: 85 - idx * 5,
+          matchPercentage: Math.max(40, (results.length ? floor - 5 : floor) - idx * 5),
           aiReasoning: matchedItems.length
             ? `Catalogue lists "${matchedItems[0].title}", matching ${extracted.productType || 'your photo'}.`
-            : `Offers ${[c.specialization?.join(', '), c.city].filter(Boolean).join(' · ')}.`
+            : imageReasoning(c, extracted)
         };
-      });
+      }));
     }
 
-    const summary = (await maybeSummarize(model, briefForAi, extracted, results.length))
+    const summary = (await maybeSummarize(followUpModel, briefForAi, extracted, results.length))
       || fallbackSummary(extracted, results.length);
-    const suggestions = await maybeSuggestions(model, briefForAi, extracted);
+    const suggestions = await maybeSuggestions(followUpModel, briefForAi, extracted);
 
     res.json({
       results,

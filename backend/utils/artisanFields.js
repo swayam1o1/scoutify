@@ -22,6 +22,22 @@ function buildSearchText({ companyName, personOfContact, city, serviceArea, spec
   ].filter(Boolean).join(' | ');
 }
 
+// Text embedded for semantic / photo matching. Products and description carry most of the
+// signal when a vendor has no catalogue photos.
+function buildEmbeddingText(listing = {}) {
+  const list = value => toList(value ? [...value] : []).join(', ');
+  const catalogueTitles = (listing.catalogue || []).map(item => item.title).filter(Boolean).slice(0, 30).join(', ');
+  return [
+    listing.companyName,
+    list(listing.specialization) && `Services: ${list(listing.specialization)}`,
+    list(listing.products) && `Products: ${list(listing.products)}`,
+    catalogueTitles && `Catalogue: ${catalogueTitles}`,
+    list(listing.customTags) && `Tags: ${list(listing.customTags)}`,
+    listing.description && String(listing.description).slice(0, 800),
+    [listing.city, listing.serviceArea].filter(Boolean).join(', ')
+  ].filter(Boolean).join(' | ');
+}
+
 // Vendor-editable listing fields, in the order admins review them.
 const LISTING_FIELDS = [
   { key: 'companyName', label: 'Company name' },
@@ -66,4 +82,4 @@ function diffListing(before = {}, after = {}) {
   return changes;
 }
 
-module.exports = { toList, buildSearchText, LISTING_FIELDS, pickListingSnapshot, diffListing };
+module.exports = { toList, buildSearchText, buildEmbeddingText, LISTING_FIELDS, pickListingSnapshot, diffListing };
