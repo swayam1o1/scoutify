@@ -6,6 +6,7 @@ import { useSearch } from './hooks/useSearch';
 import { useBoards } from './hooks/useBoards';
 import { usePayments } from './hooks/usePayments';
 import { useAdmin } from './hooks/useAdmin';
+import { useNotifications } from './hooks/useNotifications';
 
 import { Navbar } from './components/layout/Navbar';
 import { DemoHud } from './components/layout/DemoHud';
@@ -91,6 +92,13 @@ function App() {
     user: auth.user,
     applySession: auth.applySession
   });
+
+  const notifications = useNotifications({ token: auth.token, user: auth.user });
+
+  const openSearchAlerts = () => {
+    navigate('dashboard');
+    setTimeout(() => document.getElementById('client-search-alerts')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 150);
+  };
 
   // Force consumers through onboarding until completed (SRS §4)
   useEffect(() => {
@@ -179,6 +187,8 @@ function App() {
         onOpenBoards={() => navigate('boards')}
         onSignIn={auth.openAuthModal}
         onLogout={handleLogout}
+        notifications={notifications}
+        onOpenSearchAlerts={openSearchAlerts}
       />
 
       <main style={{ flex: 1 }}>
@@ -219,7 +229,7 @@ function App() {
         )}
 
         {safeView === 'dashboard' && user && !needsOnboarding && (
-          <DashboardView user={user} auth={auth} boards={boards} onNavigate={navigate} />
+          <DashboardView user={user} auth={auth} boards={boards} onNavigate={navigate} notifications={notifications} />
         )}
 
         {safeView === 'boards' && user && !needsOnboarding && (

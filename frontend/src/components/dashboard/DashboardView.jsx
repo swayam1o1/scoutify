@@ -2,6 +2,7 @@ import { Plus, Trash } from 'lucide-react';
 import { useCategories } from '../../hooks/useCategories';
 import { ReauthFields } from '../auth/ReauthFields.jsx';
 import { CatalogueManager } from './CatalogueManager.jsx';
+import { ClientSearchAlertsPanel } from '../notifications/ClientSearchAlertsPanel.jsx';
 
 const FIRM_TYPES = new Set(['architectural_firm', 'design_firm', 'company', 'firm']);
 
@@ -840,7 +841,7 @@ function ClientPortalPanel({ user, auth, boards, onNavigate }) {
   );
 }
 
-export function DashboardView({ user, auth, boards, onNavigate }) {
+export function DashboardView({ user, auth, boards, onNavigate, notifications }) {
   return (
     <div className="dashboard-container animate-fade-in">
       <div className="dashboard-header">
@@ -895,6 +896,7 @@ export function DashboardView({ user, auth, boards, onNavigate }) {
         {/* Right content: profile forms */}
         {user.role === 'artisan' ? (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '24px', minWidth: 0 }}>
+            {notifications && <ClientSearchAlertsPanel notifications={notifications} />}
             <ArtisanListingForm user={user} auth={auth} />
             <CatalogueManager token={auth.token} hasListing={Boolean(auth.artisanListingStatus)} />
           </div>

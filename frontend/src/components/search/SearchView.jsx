@@ -47,6 +47,7 @@ export function SearchView({ search, boards, user, onRequireAuth, onNavigate }) 
     searchResults,
     totalResults,
     paywallActive,
+    personalized,
     hasSearched,
     searching,
     searchError,
@@ -280,6 +281,11 @@ export function SearchView({ search, boards, user, onRequireAuth, onNavigate }) 
                   {totalResults} found
                 </span>
               </h3>
+              {personalized && totalResults > 0 && (
+                <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '6px' }}>
+                  ★ Ranked using your saved interests and location. You can change these from onboarding.
+                </p>
+              )}
             </div>
 
             {searchMode === 'ai' && (aiSummary || extractChips.length > 0) && (

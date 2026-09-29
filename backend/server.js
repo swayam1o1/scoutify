@@ -12,6 +12,7 @@ const aiSearchRoutes = require('./routes/aiSearch');
 const boardsRoutes = require('./routes/boards');
 const adminRoutes = require('./routes/admin');
 const categoriesRoutes = require('./routes/categories');
+const notificationsRoutes = require('./routes/notifications');
 const { isLocalStorage, LOCAL_UPLOAD_DIR, LOCAL_URL_PREFIX } = require('./utils/storage');
 
 async function startServer() {
@@ -39,6 +40,7 @@ async function startServer() {
   app.use('/api/boards', boardsRoutes);
   app.use('/api/admin', adminRoutes);
   app.use('/api/categories', categoriesRoutes);
+  app.use('/api/notifications', notificationsRoutes);
 
   // Health check endpoint
   app.get('/api/health', (req, res) => {

@@ -30,6 +30,7 @@ export function useSearch({ token, user, onRequireAuth, demoLogin }) {
     summary: aiSummary,
     suggestions: aiSuggestions,
     searchedImage: aiSearchedImage,
+    personalized,
     error: searchError
   } = searchByMode[searchMode];
   const isAiSearching = searchByMode.ai.searching;
@@ -70,7 +71,8 @@ export function useSearch({ token, user, onRequireAuth, demoLogin }) {
       updateSearchMode('standard', {
         results: data.results || [],
         totalResults: data.totalResults || 0,
-        paywallActive: data.paywallActive || false
+        paywallActive: data.paywallActive || false,
+        personalized: Boolean(data.personalized)
       });
     } catch (err) {
       console.error(err);
@@ -146,6 +148,7 @@ export function useSearch({ token, user, onRequireAuth, demoLogin }) {
         extracted: data.extracted || null,
         summary: data.summary || null,
         suggestions: Array.isArray(data.suggestions) ? data.suggestions : [],
+        personalized: Boolean(data.personalized),
         ...extraPatch
       });
       setAiQuery('');
@@ -283,6 +286,7 @@ export function useSearch({ token, user, onRequireAuth, demoLogin }) {
     searchResults,
     totalResults,
     paywallActive,
+    personalized,
     hasSearched,
     searching,
     searchError,

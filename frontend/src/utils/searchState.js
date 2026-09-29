@@ -8,5 +8,6 @@ export const createSearchModeState = () => ({
   summary: null,
   suggestions: [],
   searchedImage: null,
+  personalized: false,
   error: null
 });

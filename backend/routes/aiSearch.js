@@ -18,11 +18,29 @@ const {
 const { getGenerativeModel, generateWithRetry, embedText, cosineSimilarity } = require('../utils/gemini');
 const { parseImageDataUrl, ImageUploadError } = require('../utils/imageUpload');
 const { asString, buildClientImagePrompt, parseClientImageJson, imagePart } = require('../utils/visualSearch');
+const { recordSearchAndNotify } = require('../utils/searchNotifications');
+const { getClientPreferences, scorePreferences } = require('../utils/clientPreferences');
 
 const { JWT_SECRET, isSessionValid } = require('../middleware/auth');
 
 const MIN_ITEM_SCORE = 0.55;
 const MIN_PROFILE_IMAGE_SCORE = 0.55;
+// Onboarding preferences nudge ordering between similarly relevant vendors; they never outrank a clearly better match.
+const PREF_INTEREST_BOOST = 0.04;
+const PREF_LOCATION_BOOST = 0.05;
+
+// Keyword / Gemini-ranked paths: attach preference reasons and float preferred vendors up among equals.
+function applyPreferences(results, prefs, extracted) {
+  if (!prefs) return results;
+  return results
+    .map((result, index) => {
+      const { interestHits, locationHit, reasons } = scorePreferences(result, prefs, { explicitLocation: Boolean(extracted?.city) });
+      const bonus = (interestHits.length ? 3 : 0) + (locationHit ? 4 : 0);
+      return { result: { ...result, preferenceReasons: reasons, matchPercentage: Math.min(99, (Number(result.matchPercentage) || 0) + bonus) }, index };
+    })
+    .sort((left, right) => right.result.matchPercentage - left.result.matchPercentage || left.index - right.index)
+    .map(entry => entry.result);
+}
 
 // Photo-to-profile cosine scores sit in a narrow band (~0.45 unrelated → ~0.85 near-identical),
 // so spread them onto a readable 0–99 scale.
@@ -135,7 +153,7 @@ function stripEmbeddings(artisan) {
 }
 
 // mode 'text': profile + name similarity lead; mode 'image': catalogue photos lead.
-async function semanticSearch(queryEmbedding, queryText, { city, extracted, limit = 3, mode = 'text' }) {
+async function semanticSearch(queryEmbedding, queryText, { city, extracted, limit = 3, mode = 'text', prefs = null }) {
   const filter = {
     ...PUBLIC_STATUS_FILTER,
     $or: [
@@ -166,6 +184,9 @@ async function semanticSearch(queryEmbedding, queryText, { city, extracted, limi
       combinedScore = 0.7 * semanticScore + 0.2 * nameScore + boost;
     }
 
+    const preference = scorePreferences(artisan, prefs, { explicitLocation: Boolean(extracted?.city) });
+    combinedScore += (preference.interestHits.length ? PREF_INTEREST_BOOST : 0) + (preference.locationHit ? PREF_LOCATION_BOOST : 0);
+
     return {
       ...stripEmbeddings(artisan),
       semanticScore,
@@ -173,6 +194,7 @@ async function semanticSearch(queryEmbedding, queryText, { city, extracted, limi
       nameScore,
       combinedScore,
       profileTerms,
+      preferenceReasons: preference.reasons,
       matchedItems: itemMatches.map(({ item, score }) => toMatchedItem(item, score))
     };
   })
@@ -295,7 +317,20 @@ router.post('/', async (req, res) => {
       return res.status(400).json({ message: 'Search brief query is required.' });
     }
 
-    if (!(await authenticate(req, res))) return;
+    const user = await authenticate(req, res);
+    if (!user) return;
+    const prefs = getClientPreferences(user);
+    const reply = payload => {
+      res.json({ ...payload, personalized: Boolean(prefs) });
+      recordSearchAndNotify({
+        user,
+        searchType: 'ai_text',
+        query,
+        extracted: payload.extracted,
+        results: payload.results,
+        simulated: payload.simulated
+      });
+    };
 
     const model = getGenerativeModel();
     if (model) {
@@ -319,7 +354,8 @@ router.post('/', async (req, res) => {
           const semanticResults = await semanticSearch(queryEmbedding, semanticQuery, {
             city: extracted.city,
             extracted,
-            limit: 5
+            limit: 5,
+            prefs
           });
 
           if (semanticResults.length > 0) {
@@ -337,7 +373,7 @@ router.post('/', async (req, res) => {
               || fallbackSummary(extracted, results.length);
             const suggestions = await maybeSuggestions(model, query, extracted);
 
-            return res.json({
+            return reply({
               results,
               extracted,
               summary,
@@ -363,7 +399,7 @@ router.post('/', async (req, res) => {
         if (candidates.length === 0) {
           const summary = fallbackSummary(extracted, 0);
           const suggestions = await maybeSuggestions(model, query, extracted);
-          return res.json({
+          return reply({
             results: [],
             extracted,
             summary,
@@ -389,7 +425,12 @@ ${JSON.stringify(candidates.map(c => ({
   tags: c.customTags,
   description: (c.description || '').slice(0, 180)
 })))}
-
+${prefs ? `
+Client's saved preferences (use only as a tie-breaker; the brief always wins): ${JSON.stringify({
+  interests: prefs.interests,
+  preferredLocations: extracted.city ? [] : prefs.locations
+})}
+` : ''}
 Select up to 5 best matches. Prefer vendors that fit use-case, product/material, design preference, and city.
 Return ONLY a JSON array: [{"id":"artisan_id","matchPercentage":95,"reasoning":"one sentence"}]
 No markdown.`;
@@ -433,8 +474,8 @@ No markdown.`;
           || fallbackSummary(extracted, results.length);
         const suggestions = await maybeSuggestions(model, query, extracted);
 
-        return res.json({
-          results,
+        return reply({
+          results: applyPreferences(results, prefs, extracted),
           extracted,
           summary,
           suggestions,
@@ -461,16 +502,16 @@ No markdown.`;
       'Strong candidate when weighing material / use-case keywords from your prompt.'
     ];
 
-    const results = candidates.map((c, idx) => ({
+    const results = applyPreferences(candidates.map((c, idx) => ({
       ...sanitizeArtisanForUser(c),
       matchedItems: keywordCatalogueMatches(c.catalogue, extracted),
       matchPercentage: 92 - idx * 6,
       aiReasoning: mockReasonings[idx] || `Verified specialist in ${c.city}.`
-    }));
+    })), prefs, extracted);
 
     await new Promise(resolve => setTimeout(resolve, 800));
 
-    res.json({
+    reply({
       results,
       extracted,
       summary: fallbackSummary(extracted, results.length),
@@ -487,7 +528,9 @@ No markdown.`;
 // analysed in memory (never stored) and matched against vendor catalogues.
 router.post('/image', async (req, res) => {
   try {
-    if (!(await authenticate(req, res))) return;
+    const user = await authenticate(req, res);
+    if (!user) return;
+    const prefs = getClientPreferences(user);
 
     let image;
     try {
@@ -534,13 +577,15 @@ router.post('/image', async (req, res) => {
           city: extracted.city,
           extracted,
           limit: 6,
-          mode: 'image'
+          mode: 'image',
+          prefs
         });
         if (semanticResults.length === 0 && extracted.city) {
           semanticResults = await semanticSearch(queryEmbedding, extracted.expandedQuery, {
             extracted,
             limit: 6,
-            mode: 'image'
+            mode: 'image',
+            prefs
           });
         }
         results = semanticResults.map(({ profileTerms, ...artisan }) => ({
@@ -568,7 +613,7 @@ router.post('/image', async (req, res) => {
         candidates = await Artisan.find(keywordQuery(false)).select('-embedding -catalogue.embedding').limit(remaining);
       }
       const floor = results.length ? Math.min(...results.map(r => r.matchPercentage)) : 85;
-      results = results.concat(candidates.map((c, idx) => {
+      results = results.concat(applyPreferences(candidates.map((c, idx) => {
         const matchedItems = keywordCatalogueMatches(c.catalogue, extracted);
         return {
           ...sanitizeArtisanForUser(c),
@@ -578,7 +623,7 @@ router.post('/image', async (req, res) => {
             ? `Catalogue lists "${matchedItems[0].title}", matching ${extracted.productType || 'your photo'}.`
             : imageReasoning(c, extracted)
         };
-      }));
+      }), prefs, extracted));
     }
 
     const summary = (await maybeSummarize(followUpModel, briefForAi, extracted, results.length))
@@ -591,6 +636,15 @@ router.post('/image', async (req, res) => {
       summary,
       suggestions,
       imageSearch: true,
+      personalized: Boolean(prefs),
+      simulated: !model
+    });
+    recordSearchAndNotify({
+      user,
+      searchType: 'ai_image',
+      query: note || briefForAi,
+      extracted,
+      results,
       simulated: !model
     });
   } catch (err) {

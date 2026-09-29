@@ -36,6 +36,19 @@ export function ArtisanCard({
         ))}
       </div>
 
+      {artisan.preferenceReasons?.length > 0 && (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', margin: '8px 0 2px' }}>
+          {artisan.preferenceReasons.map(reason => (
+            <span
+              key={reason}
+              style={{ fontSize: '11px', padding: '3px 8px', borderRadius: '999px', background: 'rgba(20,241,149,0.1)', border: '1px solid rgba(20,241,149,0.3)', color: '#a7f3d0' }}
+            >
+              ★ {reason}
+            </span>
+          ))}
+        </div>
+      )}
+
       {previewItems.length > 0 && (
         <div style={{ margin: '10px 0 4px' }}>
           <span style={{ fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.5px', color: 'var(--color-text-secondary)' }}>
