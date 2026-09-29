@@ -2,6 +2,7 @@ require('dotenv').config();
 const mongoose = require('mongoose');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const Artisan = require('../models/Artisan');
+const { catalogueItemText } = require('../utils/visualSearch');
 
 const MONGO_URI = process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/scoutify';
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
@@ -37,6 +38,16 @@ async function run() {
     await Artisan.updateOne({ _id: artisan._id }, { $set: { searchText, embedding } });
     embedded++;
     console.log(`Embedded ${embedded}/${artisans.length}: ${artisan.companyName}`);
+
+    const pendingItems = (artisan.catalogue || []).filter(item => !item.embedding?.length);
+    for (const item of pendingItems) {
+      const itemResponse = await embeddingModel.embedContent(catalogueItemText(item));
+      item.embedding = itemResponse.embedding.values;
+    }
+    if (pendingItems.length) {
+      await Artisan.updateOne({ _id: artisan._id }, { $set: { catalogue: artisan.catalogue } });
+      console.log(`  + ${pendingItems.length} catalogue item(s)`);
+    }
   }
 }
 

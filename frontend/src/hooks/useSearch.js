@@ -17,6 +17,7 @@ export function useSearch({ token, user, onRequireAuth, demoLogin }) {
   // AI Sourcing state
   const [searchMode, setSearchMode] = useState('standard'); // 'standard' | 'ai'
   const [aiQuery, setAiQuery] = useState('');
+  const [aiImage, setAiImage] = useState('');
   const [aiLoaderStep, setAiLoaderStep] = useState(0);
 
   const {
@@ -27,7 +28,8 @@ export function useSearch({ token, user, onRequireAuth, demoLogin }) {
     searching,
     extracted: aiExtracted,
     summary: aiSummary,
-    suggestions: aiSuggestions
+    suggestions: aiSuggestions,
+    searchedImage: aiSearchedImage
   } = searchByMode[searchMode];
   const isAiSearching = searchByMode.ai.searching;
 
@@ -87,6 +89,22 @@ export function useSearch({ token, user, onRequireAuth, demoLogin }) {
     }
 
     setAiQuery(brief);
+    await executeAiRequest('/search/ai', { query: brief }, { searchedImage: null });
+  };
+
+  const runImageSearch = async (image, noteText) => {
+    if (!image) return;
+
+    if (!user) {
+      onRequireAuth?.('login');
+      return;
+    }
+
+    const note = String(noteText || '').trim();
+    await executeAiRequest('/search/ai/image', { image, note }, { searchedImage: image });
+  };
+
+  const executeAiRequest = async (path, body, extraPatch) => {
     const requestId = startSearchRequest('ai');
     setAiLoaderStep(0);
 
@@ -97,10 +115,10 @@ export function useSearch({ token, user, onRequireAuth, demoLogin }) {
     }, 600);
 
     try {
-      const res = await authFetch('/search/ai', {
+      const res = await authFetch(path, {
         token,
         method: 'POST',
-        body: { query: brief }
+        body
       });
 
       const data = await res.json();
@@ -118,7 +136,8 @@ export function useSearch({ token, user, onRequireAuth, demoLogin }) {
         paywallActive: false,
         extracted: data.extracted || null,
         summary: data.summary || null,
-        suggestions: Array.isArray(data.suggestions) ? data.suggestions : []
+        suggestions: Array.isArray(data.suggestions) ? data.suggestions : [],
+        ...extraPatch
       });
     } catch (err) {
       clearInterval(interval);
@@ -132,11 +151,13 @@ export function useSearch({ token, user, onRequireAuth, demoLogin }) {
 
   const handleAiSearch = async (e) => {
     if (e) e.preventDefault();
-    await runAiSearch(aiQuery);
+    if (aiImage) await runImageSearch(aiImage, aiQuery);
+    else await runAiSearch(aiQuery);
   };
 
   const handleAiSuggestion = (suggestion) => {
     setSearchMode('ai');
+    setAiImage('');
     runAiSearch(suggestion);
   };
 
@@ -205,7 +226,8 @@ export function useSearch({ token, user, onRequireAuth, demoLogin }) {
         paywallActive: false,
         extracted: data.extracted || null,
         summary: data.summary || null,
-        suggestions: Array.isArray(data.suggestions) ? data.suggestions : []
+        suggestions: Array.isArray(data.suggestions) ? data.suggestions : [],
+        searchedImage: null
       });
     } catch (err) {
       clearInterval(interval);
@@ -233,6 +255,9 @@ export function useSearch({ token, user, onRequireAuth, demoLogin }) {
     setSearchMode,
     aiQuery,
     setAiQuery,
+    aiImage,
+    setAiImage,
+    aiSearchedImage,
     aiLoaderStep,
     searchResults,
     totalResults,

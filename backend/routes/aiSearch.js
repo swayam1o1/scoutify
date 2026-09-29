@@ -1,7 +1,6 @@
 const express = require('express');
 const router = express.Router();
 const jwt = require('jsonwebtoken');
-const { GoogleGenerativeAI } = require('@google/generative-ai');
 const User = require('../models/User');
 const Artisan = require('../models/Artisan');
 const { sanitizeArtisanForUser } = require('../utils/sanitizeArtisan');
@@ -16,21 +15,16 @@ const {
   parseSuggestionsJson,
   serviceOrConditions
 } = require('../utils/searchIntent');
+const { getGenerativeModel, generateWithRetry, embedText, cosineSimilarity } = require('../utils/gemini');
+const { parseImageDataUrl, ImageUploadError } = require('../utils/imageUpload');
+const { asString, buildClientImagePrompt, parseClientImageJson, imagePart } = require('../utils/visualSearch');
 
 const { JWT_SECRET, isSessionValid } = require('../middleware/auth');
 
-function cosineSimilarity(left, right) {
-  if (!Array.isArray(left) || !Array.isArray(right) || left.length !== right.length || left.length === 0) return 0;
-  let dot = 0;
-  let leftMagnitude = 0;
-  let rightMagnitude = 0;
-  for (let index = 0; index < left.length; index++) {
-    dot += left[index] * right[index];
-    leftMagnitude += left[index] ** 2;
-    rightMagnitude += right[index] ** 2;
-  }
-  const denominator = Math.sqrt(leftMagnitude) * Math.sqrt(rightMagnitude);
-  return denominator ? dot / denominator : 0;
+const MIN_ITEM_SCORE = 0.55;
+
+function escapeRegex(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 function trigramSimilarity(leftValue, rightValue) {
@@ -62,7 +56,8 @@ function profileBoost(artisan, extracted) {
     artisan.searchText,
     ...(artisan.specialization || []),
     ...(artisan.products || []),
-    ...(artisan.customTags || [])
+    ...(artisan.customTags || []),
+    ...(artisan.catalogue || []).flatMap(item => [item.title, item.category, item.material, ...(item.tags || [])])
   ].join(' ').toLowerCase();
 
   let boost = 0;
@@ -80,44 +75,121 @@ function profileBoost(artisan, extracted) {
   return Math.min(boost, 0.15);
 }
 
-async function semanticSearch(queryEmbedding, queryText, { city, extracted, limit = 3 }) {
-  const filter = { ...PUBLIC_STATUS_FILTER, embedding: { $exists: true, $ne: [] } };
-  if (city) filter.city = { $regex: city.trim(), $options: 'i' };
-  const candidates = await Artisan.find(filter).lean();
-  return candidates.map(({ embedding, ...artisan }) => {
-    const semanticScore = cosineSimilarity(embedding, queryEmbedding);
-    const nameScore = trigramSimilarity(artisan.companyName || '', queryText);
-    const boost = profileBoost(artisan, extracted || {});
-    return {
-      ...artisan,
-      semanticScore,
-      nameScore,
-      combinedScore: 0.7 * semanticScore + 0.2 * nameScore + boost
-    };
-  }).sort((left, right) => right.combinedScore - left.combinedScore).slice(0, limit);
+function toMatchedItem(item, score) {
+  return {
+    _id: item._id,
+    title: item.title,
+    category: item.category,
+    material: item.material,
+    imageUrl: item.imageUrl,
+    similarity: score == null ? null : Math.round(score * 100)
+  };
 }
 
-function buildDbQuery(extracted) {
+function rankCatalogue(catalogue, queryEmbedding, limit = 3) {
+  return (catalogue || [])
+    .map(item => ({ item, score: cosineSimilarity(item.embedding, queryEmbedding) }))
+    .filter(match => match.score >= MIN_ITEM_SCORE)
+    .sort((left, right) => right.score - left.score)
+    .slice(0, limit);
+}
+
+function stripEmbeddings(artisan) {
+  const { embedding, ...rest } = artisan;
+  return { ...rest, catalogue: (artisan.catalogue || []).map(({ embedding: _e, ...item }) => item) };
+}
+
+// mode 'text': profile + name similarity lead; mode 'image': catalogue photos lead.
+async function semanticSearch(queryEmbedding, queryText, { city, extracted, limit = 3, mode = 'text' }) {
+  const filter = {
+    ...PUBLIC_STATUS_FILTER,
+    $or: [
+      { embedding: { $exists: true, $ne: [] } },
+      { 'catalogue.embedding.0': { $exists: true } }
+    ]
+  };
+  if (city) filter.city = { $regex: escapeRegex(city.trim()), $options: 'i' };
+  const candidates = await Artisan.find(filter).lean();
+
+  return candidates.map(artisan => {
+    const profileScore = cosineSimilarity(artisan.embedding, queryEmbedding);
+    const itemMatches = rankCatalogue(artisan.catalogue, queryEmbedding);
+    const itemScore = itemMatches[0]?.score || 0;
+    const boost = profileBoost(artisan, extracted || {});
+
+    let semanticScore;
+    let nameScore = 0;
+    let combinedScore;
+    if (mode === 'image') {
+      semanticScore = Math.max(itemScore, profileScore * 0.9);
+      combinedScore = 0.85 * semanticScore + boost + (itemScore ? 0.05 : 0);
+    } else {
+      semanticScore = Math.max(profileScore, itemScore);
+      nameScore = trigramSimilarity(artisan.companyName || '', queryText);
+      combinedScore = 0.7 * semanticScore + 0.2 * nameScore + boost;
+    }
+
+    return {
+      ...stripEmbeddings(artisan),
+      semanticScore,
+      itemScore,
+      nameScore,
+      combinedScore,
+      matchedItems: itemMatches.map(({ item, score }) => toMatchedItem(item, score))
+    };
+  })
+    .filter(artisan => artisan.semanticScore > 0)
+    .sort((left, right) => right.combinedScore - left.combinedScore)
+    .slice(0, limit);
+}
+
+function catalogueOrConditions(extracted) {
+  const terms = [extracted.productType, extracted.service, extracted.material, ...(extracted.synonyms || [])]
+    .map(term => asString(term, 60).toLowerCase())
+    .filter(Boolean);
+  const unique = [...new Set(terms)];
+  if (unique.length === 0) return [];
+  return unique.flatMap(term => {
+    const regex = { $regex: escapeRegex(term), $options: 'i' };
+    return [
+      { 'catalogue.title': regex },
+      { 'catalogue.category': regex },
+      { 'catalogue.material': regex },
+      { 'catalogue.tags': regex }
+    ];
+  });
+}
+
+function buildDbQuery(extracted, { includeCity = true } = {}) {
   const conditions = [PUBLIC_STATUS_FILTER];
   const serviceFilter = serviceOrConditions(extracted);
-  if (serviceFilter) conditions.push(serviceFilter);
-  if (extracted.city) {
-    conditions.push({
-      $or: [
-        { city: { $regex: extracted.city.trim(), $options: 'i' } },
-        { serviceArea: { $regex: extracted.city.trim(), $options: 'i' } }
-      ]
-    });
+  const catalogueFilter = catalogueOrConditions(extracted);
+  const orConditions = [...(serviceFilter?.$or || []), ...catalogueFilter];
+  if (orConditions.length) conditions.push({ $or: orConditions });
+  if (includeCity && extracted.city) {
+    const cityRegex = { $regex: escapeRegex(extracted.city.trim()), $options: 'i' };
+    conditions.push({ $or: [{ city: cityRegex }, { serviceArea: cityRegex }] });
   }
   return { $and: conditions };
 }
 
-let genAI = null;
-if (process.env.GEMINI_API_KEY) {
-  genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+// Keyword match against catalogue items, used when embeddings are unavailable.
+function keywordCatalogueMatches(catalogue, extracted, limit = 3) {
+  const terms = [extracted.productType, extracted.service, extracted.material, ...(extracted.synonyms || [])]
+    .map(term => asString(term, 60).toLowerCase())
+    .filter(Boolean);
+  if (terms.length === 0) return [];
+  return (catalogue || [])
+    .filter(item => {
+      const haystack = [item.title, item.category, item.material, ...(item.tags || [])].join(' ').toLowerCase();
+      return terms.some(term => haystack.includes(term));
+    })
+    .slice(0, limit)
+    .map(item => toMatchedItem(item, null));
 }
 
 async function maybeSummarize(model, query, extracted, resultCount) {
+  if (!model) return null;
   try {
     const summaryResult = await model.generateContent(buildSummaryPrompt(query, extracted, resultCount));
     const text = summaryResult.response.text().trim();
@@ -153,6 +225,28 @@ function fallbackSummary(extracted, resultCount) {
   return `Found ${resultCount} verified vendor${resultCount === 1 ? '' : 's'} ${focus}. Rankings use AI interpretation of your prompt plus profile similarity.`;
 }
 
+// Returns the signed-in user, or sends a 401 and returns null.
+async function authenticate(req, res) {
+  const authHeader = req.headers.authorization;
+  if (!authHeader) {
+    res.status(401).json({ message: 'Authentication required to use AI Sourcing.' });
+    return null;
+  }
+  try {
+    const token = authHeader.split(' ')[1];
+    const decoded = jwt.verify(token, JWT_SECRET);
+    const user = await User.findById(decoded.id);
+    if (!user || !isSessionValid(decoded, user) || user.isDeleted || user.isSuspended) {
+      res.status(401).json({ message: 'Session expired. Please sign in again.', code: 'SESSION_REVOKED' });
+      return null;
+    }
+    return user;
+  } catch (err) {
+    res.status(401).json({ message: 'Invalid token.' });
+    return null;
+  }
+}
+
 router.post('/', async (req, res) => {
   try {
     const { query } = req.body;
@@ -160,26 +254,11 @@ router.post('/', async (req, res) => {
       return res.status(400).json({ message: 'Search brief query is required.' });
     }
 
-    const authHeader = req.headers.authorization;
-    if (!authHeader) {
-      return res.status(401).json({ message: 'Authentication required to use AI Sourcing.' });
-    }
+    if (!(await authenticate(req, res))) return;
 
-    try {
-      const token = authHeader.split(' ')[1];
-      const decoded = jwt.verify(token, JWT_SECRET);
-      const user = await User.findById(decoded.id);
-      if (!user || !isSessionValid(decoded, user) || user.isDeleted || user.isSuspended) {
-        return res.status(401).json({ message: 'Session expired. Please sign in again.', code: 'SESSION_REVOKED' });
-      }
-    } catch (err) {
-      return res.status(401).json({ message: 'Invalid token.' });
-    }
-
-    if (genAI) {
+    const model = getGenerativeModel();
+    if (model) {
       try {
-        const model = genAI.getGenerativeModel({ model: 'gemini-3.6-flash' });
-
         // Step 1: Structured intent extraction (SRS §5.1 + synonyms §5.2)
         let extracted;
         try {
@@ -191,14 +270,12 @@ router.post('/', async (req, res) => {
           extracted = regexExtract(query);
         }
 
-        const embedText = extracted.expandedQuery || query;
+        const semanticQuery = extracted.expandedQuery || query;
 
-        // Prefer vector ranking when embeddings exist
+        // Prefer vector ranking when embeddings exist (vendor profiles + catalogue items)
         try {
-          const embeddingModel = genAI.getGenerativeModel({ model: 'gemini-embedding-001' });
-          const embeddingResult = await embeddingModel.embedContent(embedText);
-          const queryEmbedding = embeddingResult.embedding.values;
-          const semanticResults = await semanticSearch(queryEmbedding, embedText, {
+          const queryEmbedding = await embedText(semanticQuery);
+          const semanticResults = await semanticSearch(queryEmbedding, semanticQuery, {
             city: extracted.city,
             extracted,
             limit: 5
@@ -208,7 +285,9 @@ router.post('/', async (req, res) => {
             const results = semanticResults.map(artisan => ({
               ...sanitizeArtisanForUser(artisan),
               matchPercentage: Math.max(0, Math.min(99, Math.round(artisan.combinedScore * 100))),
-              aiReasoning: `Ranked from ${Math.round(artisan.semanticScore * 100)}% semantic similarity`
+              aiReasoning: (artisan.matchedItems.length && artisan.itemScore >= artisan.semanticScore
+                ? `Catalogue product "${artisan.matchedItems[0].title}" is a ${Math.round(artisan.itemScore * 100)}% semantic match`
+                : `Ranked from ${Math.round(artisan.semanticScore * 100)}% semantic similarity`)
                 + (extracted.material || extracted.useCase
                   ? ` aligned with ${[extracted.material, extracted.useCase, extracted.designPreference].filter(Boolean).join(', ')}.`
                   : ` and ${Math.round(artisan.nameScore * 100)}% name similarity.`)
@@ -231,14 +310,13 @@ router.post('/', async (req, res) => {
         }
 
         // Step 2: DB candidates via service synonyms + city
-        let candidates = await Artisan.find(buildDbQuery(extracted)).limit(15);
+        let candidates = await Artisan.find(buildDbQuery(extracted)).select('-embedding -catalogue.embedding').limit(15);
 
         // Relax city if nothing found
         if (candidates.length === 0 && extracted.city) {
-          const serviceOnly = [PUBLIC_STATUS_FILTER];
-          const serviceFilter = serviceOrConditions(extracted);
-          if (serviceFilter) serviceOnly.push(serviceFilter);
-          candidates = await Artisan.find({ $and: serviceOnly }).limit(15);
+          candidates = await Artisan.find(buildDbQuery(extracted, { includeCity: false }))
+            .select('-embedding -catalogue.embedding')
+            .limit(15);
         }
 
         if (candidates.length === 0) {
@@ -266,6 +344,7 @@ ${JSON.stringify(candidates.map(c => ({
   city: c.city,
   specializations: c.specialization,
   products: c.products,
+  catalogue: (c.catalogue || []).slice(0, 8).map(item => item.title),
   tags: c.customTags,
   description: (c.description || '').slice(0, 180)
 })))}
@@ -291,6 +370,7 @@ No markdown.`;
           if (artisan) {
             results.push({
               ...sanitizeArtisanForUser(artisan),
+              matchedItems: keywordCatalogueMatches(artisan.catalogue, extracted),
               matchPercentage: meta.matchPercentage,
               aiReasoning: meta.reasoning
             });
@@ -301,6 +381,7 @@ No markdown.`;
           candidates.slice(0, 5).forEach((c, idx) => {
             results.push({
               ...sanitizeArtisanForUser(c),
+              matchedItems: keywordCatalogueMatches(c.catalogue, extracted),
               matchPercentage: 90 - idx * 5,
               aiReasoning: `Matched on ${[c.specialization?.join(', '), c.city].filter(Boolean).join(' · ')}.`
             });
@@ -325,12 +406,12 @@ No markdown.`;
 
     // --- Offline / no-key fallback ---
     const extracted = regexExtract(query);
-    let candidates = await Artisan.find(buildDbQuery(extracted)).limit(5);
+    let candidates = await Artisan.find(buildDbQuery(extracted)).select('-embedding -catalogue.embedding').limit(5);
     if (candidates.length === 0 && extracted.service) {
       candidates = await Artisan.find({
         ...PUBLIC_STATUS_FILTER,
-        specialization: { $regex: extracted.service, $options: 'i' }
-      }).limit(5);
+        specialization: { $regex: escapeRegex(extracted.service), $options: 'i' }
+      }).select('-embedding -catalogue.embedding').limit(5);
     }
 
     const mockReasonings = [
@@ -341,6 +422,7 @@ No markdown.`;
 
     const results = candidates.map((c, idx) => ({
       ...sanitizeArtisanForUser(c),
+      matchedItems: keywordCatalogueMatches(c.catalogue, extracted),
       matchPercentage: 92 - idx * 6,
       aiReasoning: mockReasonings[idx] || `Verified specialist in ${c.city}.`
     }));
@@ -357,6 +439,112 @@ No markdown.`;
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: 'Error processing AI Matchmaker search.' });
+  }
+});
+
+// Photo search: client uploads a picture of the item they want; the photo is
+// analysed in memory (never stored) and matched against vendor catalogues.
+router.post('/image', async (req, res) => {
+  try {
+    if (!(await authenticate(req, res))) return;
+
+    let image;
+    try {
+      image = parseImageDataUrl(req.body.image);
+    } catch (err) {
+      if (err instanceof ImageUploadError) return res.status(err.status).json({ message: err.message });
+      throw err;
+    }
+    const note = asString(req.body.note, 500);
+
+    const model = getGenerativeModel();
+    let extracted = null;
+    if (model) {
+      try {
+        const visionResult = await generateWithRetry(model, [buildClientImagePrompt(note), imagePart(image)]);
+        extracted = parseClientImageJson(visionResult.response.text().trim());
+      } catch (err) {
+        console.warn('Gemini image analysis failed:', err.message);
+      }
+    }
+
+    if (!extracted) {
+      if (!note) {
+        return res.status(503).json({
+          message: 'Photo search is temporarily unavailable. Add a short description of the item or use the text brief instead.'
+        });
+      }
+      extracted = regexExtract(note);
+    }
+
+    const briefForAi = note
+      ? `Photo of ${extracted.productType || 'an item'} — client note: ${note}`
+      : `Photo of ${[extracted.designPreference, extracted.material, extracted.productType].filter(Boolean).join(' ') || 'an item'}`;
+
+    let results = [];
+    try {
+      const queryEmbedding = await embedText(extracted.expandedQuery || briefForAi);
+      if (queryEmbedding) {
+        let semanticResults = await semanticSearch(queryEmbedding, extracted.expandedQuery, {
+          city: extracted.city,
+          extracted,
+          limit: 6,
+          mode: 'image'
+        });
+        if (semanticResults.length === 0 && extracted.city) {
+          semanticResults = await semanticSearch(queryEmbedding, extracted.expandedQuery, {
+            extracted,
+            limit: 6,
+            mode: 'image'
+          });
+        }
+        results = semanticResults.map(artisan => ({
+          ...sanitizeArtisanForUser(artisan),
+          matchPercentage: Math.max(0, Math.min(99, Math.round(artisan.combinedScore * 100))),
+          aiReasoning: artisan.matchedItems.length
+            ? `Catalogue product "${artisan.matchedItems[0].title}" looks ${artisan.matchedItems[0].similarity}% similar to your photo.`
+            : `Vendor profile is a ${Math.round(artisan.semanticScore * 100)}% match for ${extracted.productType || 'this item'}.`
+        }));
+      }
+    } catch (err) {
+      console.warn('Image semantic ranking unavailable, using keyword match:', err.message);
+    }
+
+    if (results.length === 0) {
+      let candidates = await Artisan.find(buildDbQuery(extracted)).select('-embedding -catalogue.embedding').limit(6);
+      if (candidates.length === 0 && extracted.city) {
+        candidates = await Artisan.find(buildDbQuery(extracted, { includeCity: false }))
+          .select('-embedding -catalogue.embedding')
+          .limit(6);
+      }
+      results = candidates.map((c, idx) => {
+        const matchedItems = keywordCatalogueMatches(c.catalogue, extracted);
+        return {
+          ...sanitizeArtisanForUser(c),
+          matchedItems,
+          matchPercentage: 85 - idx * 5,
+          aiReasoning: matchedItems.length
+            ? `Catalogue lists "${matchedItems[0].title}", matching ${extracted.productType || 'your photo'}.`
+            : `Offers ${[c.specialization?.join(', '), c.city].filter(Boolean).join(' · ')}.`
+        };
+      });
+    }
+
+    const summary = (await maybeSummarize(model, briefForAi, extracted, results.length))
+      || fallbackSummary(extracted, results.length);
+    const suggestions = await maybeSuggestions(model, briefForAi, extracted);
+
+    res.json({
+      results,
+      extracted,
+      summary,
+      suggestions,
+      imageSearch: true,
+      simulated: !model
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Error processing photo search.' });
   }
 });
 

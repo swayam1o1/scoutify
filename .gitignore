@@ -17,6 +17,9 @@ service-account*.json
 secrets/
 .aws/
 
+# Local image uploads (S3 is used when S3_UPLOADS_BUCKET is set)
+backend/uploads/
+
 # Logs
 logs/
 *.log

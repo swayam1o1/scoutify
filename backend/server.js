@@ -12,6 +12,7 @@ const aiSearchRoutes = require('./routes/aiSearch');
 const boardsRoutes = require('./routes/boards');
 const adminRoutes = require('./routes/admin');
 const categoriesRoutes = require('./routes/categories');
+const { isLocalStorage, LOCAL_UPLOAD_DIR, LOCAL_URL_PREFIX } = require('./utils/storage');
 
 async function startServer() {
   await loadSecrets();
@@ -22,7 +23,12 @@ async function startServer() {
 
   // Middlewares
   app.use(cors());
-  app.use(express.json());
+  // Photo uploads arrive as base64 data URLs (5 MB image ≈ 6.7 MB encoded).
+  app.use(express.json({ limit: '8mb' }));
+
+  if (isLocalStorage()) {
+    app.use(LOCAL_URL_PREFIX, express.static(LOCAL_UPLOAD_DIR, { maxAge: '7d', index: false }));
+  }
 
   // Routes mapping
   app.use('/api/auth', authRoutes);

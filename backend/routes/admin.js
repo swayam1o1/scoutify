@@ -6,6 +6,8 @@ const Artisan = require('../models/Artisan');
 const AuditLog = require('../models/AuditLog');
 const { requireAuth, requireAdmin, signToken } = require('../middleware/auth');
 const { toList, buildSearchText } = require('../utils/artisanFields');
+const { sanitizeArtisanForUser } = require('../utils/sanitizeArtisan');
+const { deleteImage } = require('../utils/storage');
 const {
   CONTACT_STATUSES,
   ADMIN_ASSIGNABLE_STATUSES,
@@ -145,7 +147,7 @@ router.get('/vendors', async (req, res) => {
 
     const limit = Math.min(Number(req.query.limit) || 100, 500);
     const vendors = await Artisan.find(query)
-      .select('-embedding')
+      .select('-embedding -catalogue.embedding')
       .sort({ updatedAt: -1 })
       .limit(limit);
 
@@ -177,7 +179,7 @@ router.patch('/vendors/:id/status', async (req, res) => {
       status
     });
 
-    res.json({ message: `Vendor marked ${status}.`, vendor });
+    res.json({ message: `Vendor marked ${status}.`, vendor: sanitizeArtisanForUser(vendor) });
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: 'Server error updating vendor status.' });
@@ -231,6 +233,7 @@ router.delete('/vendors/:id', async (req, res) => {
   try {
     const vendor = await Artisan.findByIdAndDelete(req.params.id);
     if (!vendor) return res.status(404).json({ message: 'Vendor not found.' });
+    await Promise.all((vendor.catalogue || []).map(item => deleteImage(item.imageKey)));
 
     await writeAudit(req.user, 'vendor.deleted', 'Artisan', vendor._id, {
       companyName: vendor.companyName,

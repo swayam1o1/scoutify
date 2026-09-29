@@ -1,6 +1,8 @@
-import { CheckCircle, MapPin, Search, ShieldCheck, Sparkles } from 'lucide-react';
+import { useRef } from 'react';
+import { CheckCircle, ImagePlus, MapPin, Search, ShieldCheck, Sparkles, X } from 'lucide-react';
 import { ArtisanCard } from './ArtisanCard';
 import { PaywallSection } from './PaywallSection';
+import { fileToResizedDataUrl, IMAGE_ACCEPT } from '../../utils/image';
 
 const AI_LOADER_STEPS = [
   'Analyzing project requirements...',
@@ -38,6 +40,9 @@ export function SearchView({ search, boards, user, onRequireAuth, onNavigate }) 
     setSearchMode,
     aiQuery,
     setAiQuery,
+    aiImage,
+    setAiImage,
+    aiSearchedImage,
     aiLoaderStep,
     searchResults,
     totalResults,
@@ -52,6 +57,23 @@ export function SearchView({ search, boards, user, onRequireAuth, onNavigate }) 
     handleAiSearch,
     handleAiSuggestion
   } = search;
+
+  const photoInput = useRef(null);
+
+  const pickPhoto = async (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    if (!user) {
+      onRequireAuth('login');
+      return;
+    }
+    try {
+      setAiImage(await fileToResizedDataUrl(file));
+    } catch (err) {
+      alert(err.message);
+    }
+  };
 
   // Hard-cap: basic plan users never see more than 10 results regardless of state
   const isCapped = user?.subscriptionPlan === 'basic' || !user;
@@ -68,6 +90,9 @@ export function SearchView({ search, boards, user, onRequireAuth, onNavigate }) 
     pushChip('Product', aiExtracted.productType || aiExtracted.service);
     pushChip('Material', aiExtracted.material);
     pushChip('Design', aiExtracted.designPreference);
+    if (Array.isArray(aiExtracted.colors) && aiExtracted.colors.length) {
+      pushChip('Colours', aiExtracted.colors.join(', '));
+    }
     pushChip('Location', aiExtracted.city || aiExtracted.location);
     if (aiExtracted.distanceKm) pushChip('Distance', `${aiExtracted.distanceKm} km`);
     pushChip('Quantity', aiExtracted.quantity);
@@ -138,11 +163,17 @@ export function SearchView({ search, boards, user, onRequireAuth, onNavigate }) 
           ) : (
             <form onSubmit={handleAiSearch} className="glass-card animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '16px', padding: '20px', textAlign: 'left' }}>
               <div>
-                <label className="form-label">Explain your project requirements in detail (use case, material, design, budget, city, distance)</label>
+                <label className="form-label">
+                  {aiImage
+                    ? 'Add a note about the item (optional): city, material, quantity...'
+                    : 'Explain your project requirements in detail (use case, material, design, budget, city, distance)'}
+                </label>
                 <textarea
                   className="form-control"
                   rows={3}
-                  placeholder='e.g. "Find handcrafted wooden furniture manufacturers near Bangalore for a hospitality project under 5 lakhs."'
+                  placeholder={aiImage
+                    ? 'e.g. "Need 20 of these for a cafe in Pune, in teak."'
+                    : 'e.g. "Find handcrafted wooden furniture manufacturers near Bangalore for a hospitality project under 5 lakhs."'}
                   value={aiQuery}
                   onChange={(e) => setAiQuery(e.target.value)}
                   onKeyDown={(e) => {
@@ -151,12 +182,44 @@ export function SearchView({ search, boards, user, onRequireAuth, onNavigate }) 
                       e.currentTarget.form?.requestSubmit();
                     }
                   }}
-                  required
+                  required={!aiImage}
                   style={{ resize: 'none' }}
                 />
               </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+                {aiImage ? (
+                  <div style={{ position: 'relative', width: '72px', height: '72px', borderRadius: '8px', overflow: 'hidden', border: '1px solid var(--border-color)' }}>
+                    <img src={aiImage} alt="Item to match" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                    <button
+                      type="button"
+                      className="btn btn-secondary"
+                      style={{ position: 'absolute', top: 4, right: 4, padding: '2px 5px' }}
+                      onClick={() => setAiImage('')}
+                      aria-label="Remove photo"
+                    >
+                      <X size={12} />
+                    </button>
+                  </div>
+                ) : null}
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  style={{ padding: '8px 14px', fontSize: '13px', gap: '6px' }}
+                  onClick={() => (user ? photoInput.current?.click() : onRequireAuth('login'))}
+                >
+                  <ImagePlus size={16} /> {aiImage ? 'Change photo' : 'Search by photo'}
+                </button>
+                <span style={{ fontSize: '12px', color: 'var(--color-text-secondary)', flex: 1, minWidth: '180px' }}>
+                  {aiImage
+                    ? "We'll match vendors whose catalogue has similar products."
+                    : 'Have a picture of the item you want? Upload it to find vendors who make it.'}
+                </span>
+                <input ref={photoInput} type="file" accept={IMAGE_ACCEPT} onChange={pickPhoto} style={{ display: 'none' }} />
+              </div>
+
               <button type="submit" className="btn btn-primary" style={{ width: '100%', justifyContent: 'center' }}>
-                <Sparkles size={18} /> Match Me with Artisans
+                <Sparkles size={18} /> {aiImage ? 'Find Vendors for This Item' : 'Match Me with Artisans'}
               </button>
             </form>
           )}
@@ -186,25 +249,39 @@ export function SearchView({ search, boards, user, onRequireAuth, onNavigate }) 
             </div>
 
             {searchMode === 'ai' && (aiSummary || extractChips.length > 0) && (
-              <div className="glass-card" style={{ marginBottom: '18px', padding: '16px 18px' }}>
-                {aiSummary && (
-                  <p style={{ fontSize: '14px', color: 'var(--color-text-secondary)', marginBottom: extractChips.length ? '12px' : 0 }}>
-                    {aiSummary}
-                  </p>
+              <div className="glass-card" style={{ marginBottom: '18px', padding: '16px 18px', display: 'flex', gap: '16px', alignItems: 'flex-start' }}>
+                {aiSearchedImage && (
+                  <img
+                    src={aiSearchedImage}
+                    alt="Your uploaded item"
+                    style={{ width: '88px', height: '88px', objectFit: 'cover', borderRadius: '8px', flexShrink: 0, border: '1px solid var(--border-color)' }}
+                  />
                 )}
-                {extractChips.length > 0 && (
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
-                    {extractChips.map(chip => (
-                      <span
-                        key={`${chip.label}-${chip.value}`}
-                        className="badge badge-purple"
-                        style={{ fontSize: '11px', padding: '6px 10px', fontWeight: 500 }}
-                      >
-                        <strong style={{ opacity: 0.85 }}>{chip.label}:</strong> {chip.value}
-                      </span>
-                    ))}
-                  </div>
-                )}
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  {aiExtracted?.visualDescription && (
+                    <p style={{ fontSize: '13px', marginBottom: '8px' }}>
+                      <strong>Detected item:</strong> {aiExtracted.visualDescription}
+                    </p>
+                  )}
+                  {aiSummary && (
+                    <p style={{ fontSize: '14px', color: 'var(--color-text-secondary)', marginBottom: extractChips.length ? '12px' : 0 }}>
+                      {aiSummary}
+                    </p>
+                  )}
+                  {extractChips.length > 0 && (
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                      {extractChips.map(chip => (
+                        <span
+                          key={`${chip.label}-${chip.value}`}
+                          className="badge badge-purple"
+                          style={{ fontSize: '11px', padding: '6px 10px', fontWeight: 500 }}
+                        >
+                          <strong style={{ opacity: 0.85 }}>{chip.label}:</strong> {chip.value}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
             )}
 

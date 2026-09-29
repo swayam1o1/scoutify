@@ -6,6 +6,8 @@ const Artisan = require('../models/Artisan');
 const { requireAuth, requireRole } = require('../middleware/auth');
 const { PUBLIC_STATUS_FILTER } = require('../constants/artisan');
 
+const BOARD_VENDORS = { path: 'boards.vendors', select: '-embedding -catalogue.embedding' };
+
 // Try initializing Gemini if key is provided
 let genAI = null;
 if (process.env.GEMINI_API_KEY) {
@@ -18,7 +20,7 @@ router.use(requireAuth, requireRole('client'));
 // 1. Get all boards for the logged in user
 router.get('/', async (req, res) => {
   try {
-    const user = await User.findById(req.user._id).populate('boards.vendors');
+    const user = await User.findById(req.user._id).populate(BOARD_VENDORS);
     if (!user) return res.status(404).json({ message: 'User not found.' });
     res.json({ boards: user.boards || [] });
   } catch (err) {
@@ -48,7 +50,7 @@ router.post('/', async (req, res) => {
     await user.save();
 
     // Return populated boards so frontend has full vendor objects
-    const populated = await User.findById(req.user._id).populate('boards.vendors');
+    const populated = await User.findById(req.user._id).populate(BOARD_VENDORS);
     res.status(201).json({ message: 'Project board created successfully.', boards: populated.boards });
   } catch (err) {
     console.error(err);
@@ -80,7 +82,7 @@ router.post('/:boardId/vendors', async (req, res) => {
     await user.save();
 
     // Return populated boards so frontend has full vendor objects
-    const populated = await User.findById(req.user._id).populate('boards.vendors');
+    const populated = await User.findById(req.user._id).populate(BOARD_VENDORS);
     res.json({ message: 'Artisan saved to project board.', boards: populated.boards });
   } catch (err) {
     console.error(err);
@@ -101,7 +103,7 @@ router.delete('/:boardId/vendors/:vendorId', async (req, res) => {
     await user.save();
 
     // Populate vendors before returning updated boards to sync frontend state correctly
-    const populatedUser = await User.findById(req.user._id).populate('boards.vendors');
+    const populatedUser = await User.findById(req.user._id).populate(BOARD_VENDORS);
 
     res.json({ message: 'Artisan removed from board.', boards: populatedUser.boards });
   } catch (err) {
@@ -120,7 +122,7 @@ router.delete('/:boardId', async (req, res) => {
     await user.save();
 
     // Return populated boards so frontend has full vendor objects
-    const populated = await User.findById(req.user._id).populate('boards.vendors');
+    const populated = await User.findById(req.user._id).populate(BOARD_VENDORS);
     res.json({ message: 'Project board deleted.', boards: populated.boards });
   } catch (err) {
     console.error(err);

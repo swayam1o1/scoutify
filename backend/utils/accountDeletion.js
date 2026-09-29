@@ -1,5 +1,6 @@
 const AuditLog = require('../models/AuditLog');
 const Artisan = require('../models/Artisan');
+const { deleteImage } = require('./storage');
 const { bumpTokenVersion } = require('../middleware/auth');
 
 /**
@@ -100,6 +101,7 @@ async function deleteUserAccount(user, { confirmText } = {}) {
 
   // Hide + anonymize public vendor listing; clear portfolio image/links
   if (role === 'artisan') {
+    await Promise.all((listing?.catalogue || []).map(item => deleteImage(item.imageKey)));
     await Artisan.updateOne(
       { userId: user._id },
       {
@@ -117,6 +119,7 @@ async function deleteUserAccount(user, { confirmText } = {}) {
           products: [],
           customTags: [],
           portfolio: [],
+          catalogue: [],
           searchText: '',
           contactStatus: 'rejected'
         },

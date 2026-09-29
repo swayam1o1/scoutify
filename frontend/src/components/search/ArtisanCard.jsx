@@ -1,5 +1,6 @@
 import { Globe, Lock, Mail, MapPin, Phone, User as UserIcon } from 'lucide-react';
 import { Instagram } from '../../icons/Instagram';
+import { assetUrl } from '../../api/client';
 
 export function ArtisanCard({
   artisan,
@@ -15,6 +16,8 @@ export function ArtisanCard({
   onRequireAuth
 }) {
   const contactUnlocked = Boolean(user) && !artisan.contactLocked;
+  const hasMatchedItems = Array.isArray(artisan.matchedItems) && artisan.matchedItems.length > 0;
+  const previewItems = (hasMatchedItems ? artisan.matchedItems : artisan.catalogue || []).slice(0, 3);
 
   return (
     <div className="glass-card animate-fade-in" style={{ animationDelay: `${index * 0.05}s` }}>
@@ -32,6 +35,29 @@ export function ArtisanCard({
           <span key={i} className="spec-tag">{spec}</span>
         ))}
       </div>
+
+      {previewItems.length > 0 && (
+        <div style={{ margin: '10px 0 4px' }}>
+          <span style={{ fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.5px', color: 'var(--color-text-secondary)' }}>
+            {hasMatchedItems ? 'Matching catalogue products' : 'From their catalogue'}
+          </span>
+          <div style={{ display: 'flex', gap: '8px', marginTop: '6px' }}>
+            {previewItems.map(item => (
+              <div key={item._id} title={item.title} style={{ width: '33%', maxWidth: '96px' }}>
+                <img
+                  src={assetUrl(item.imageUrl)}
+                  alt={item.title}
+                  loading="lazy"
+                  style={{ width: '100%', aspectRatio: '1', objectFit: 'cover', borderRadius: '6px', border: '1px solid var(--border-color)', display: 'block' }}
+                />
+                <span style={{ fontSize: '10px', color: 'var(--color-text-secondary)', display: 'block', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', marginTop: '3px' }}>
+                  {item.similarity ? `${item.similarity}% · ` : ''}{item.title}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="artisan-info">
         <div className="artisan-info-item">

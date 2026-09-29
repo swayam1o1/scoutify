@@ -1,6 +1,7 @@
 import { Plus, Trash } from 'lucide-react';
 import { useCategories } from '../../hooks/useCategories';
 import { ReauthFields } from '../auth/ReauthFields.jsx';
+import { CatalogueManager } from './CatalogueManager.jsx';
 
 const FIRM_TYPES = new Set(['architectural_firm', 'design_firm', 'company', 'firm']);
 
@@ -890,7 +891,10 @@ export function DashboardView({ user, auth, boards, onNavigate }) {
 
         {/* Right content: profile forms */}
         {user.role === 'artisan' ? (
-          <ArtisanListingForm user={user} auth={auth} />
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '24px', minWidth: 0 }}>
+            <ArtisanListingForm user={user} auth={auth} />
+            <CatalogueManager token={auth.token} hasListing={Boolean(auth.artisanListingStatus)} />
+          </div>
         ) : user.role === 'admin' ? (
           <div className="glass-card">
             <h3 style={{ marginBottom: '12px' }}>Admin access</h3>
