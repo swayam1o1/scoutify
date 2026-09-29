@@ -41,12 +41,17 @@ const ArtisanSchema = new mongoose.Schema({
   searchText: { type: String, default: '' },
   embedding: embeddingField,
   catalogue: { type: [CatalogueItemSchema], default: [] },
+  // Listing fields as last approved by an admin, so re-submissions can be diffed.
+  approvedSnapshot: { type: mongoose.Schema.Types.Mixed, default: undefined },
+  lastApprovedAt: { type: Date },
+  changeRequestedAt: { type: Date },
   userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }
 }, {
   timestamps: true,
   toJSON: {
     transform(doc, ret) {
       delete ret.embedding;
+      delete ret.approvedSnapshot;
       if (Array.isArray(ret.catalogue)) {
         ret.catalogue = ret.catalogue.map(({ embedding, imageKey, ...item }) => item);
       }

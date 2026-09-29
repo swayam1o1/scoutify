@@ -14,13 +14,13 @@ const AI_LOADER_STEPS = [
 function AiMatchmakerLoader({ aiLoaderStep }) {
   return (
     <div className="glass-card animate-fade-in" style={{ maxWidth: '450px', margin: '40px auto', padding: '30px', textAlign: 'center' }}>
-      <div className="spin" style={{ border: '4px solid rgba(255,255,255,0.1)', borderLeftColor: '#14f195', borderRadius: '50%', width: '40px', height: '40px', margin: '0 auto 20px' }}></div>
+      <div className="spin" style={{ border: '4px solid var(--surface-3)', borderLeftColor: 'var(--color-primary)', borderRadius: '50%', width: '40px', height: '40px', margin: '0 auto 20px' }}></div>
       <h3 style={{ marginBottom: '18px', fontSize: '18px' }}>Scoutify AI Matchmaker</h3>
       <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', textAlign: 'left', fontSize: '14px' }}>
         {AI_LOADER_STEPS.map((label, i) => (
-          <div key={label} style={{ display: 'flex', alignItems: 'center', gap: '10px', color: aiLoaderStep >= i ? '#14f195' : 'var(--color-text-secondary)' }}>
+          <div key={label} style={{ display: 'flex', alignItems: 'center', gap: '10px', color: aiLoaderStep >= i ? 'var(--color-primary)' : 'var(--color-text-secondary)' }}>
             {aiLoaderStep > i
-              ? <CheckCircle size={16} style={{ color: '#14f195' }} />
+              ? <CheckCircle size={16} style={{ color: 'var(--color-primary)' }} />
               : <div style={{ width: 16, height: 16, border: '2px solid', borderRadius: '50%', flexShrink: 0 }} />}
             <span>{label}</span>
           </div>
@@ -257,7 +257,7 @@ export function SearchView({ search, boards, user, onRequireAuth, onNavigate }) 
             <AiMatchmakerLoader aiLoaderStep={aiLoaderStep} />
           ) : (
             <div style={{ textAlign: 'center', padding: '40px' }}>
-              <div className="spin" style={{ border: '4px solid rgba(255,255,255,0.1)', borderLeftColor: '#14f195', borderRadius: '50%', width: '40px', height: '40px', margin: '0 auto 16px' }}></div>
+              <div className="spin" style={{ border: '4px solid var(--surface-3)', borderLeftColor: 'var(--color-primary)', borderRadius: '50%', width: '40px', height: '40px', margin: '0 auto 16px' }}></div>
               <p style={{ color: 'var(--color-text-secondary)' }}>Searching database...</p>
             </div>
           )

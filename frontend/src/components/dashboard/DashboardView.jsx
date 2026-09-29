@@ -8,27 +8,27 @@ const FIRM_TYPES = new Set(['architectural_firm', 'design_firm', 'company', 'fir
 const STATUS_BANNERS = {
   pending: {
     text: 'Your listing is awaiting Scoutify admin approval. It stays hidden from search until it is approved.',
-    background: 'rgba(250, 204, 21, 0.12)',
-    border: '1px solid rgba(250, 204, 21, 0.35)',
-    color: '#fde68a'
+    background: 'var(--tone-warning-bg)',
+    border: '1px solid var(--tone-warning-border)',
+    color: 'var(--tone-warning-text)'
   },
   rejected: {
     text: 'Your listing was rejected by a Scoutify admin. Update the details below and save to request another review.',
-    background: 'rgba(239, 68, 68, 0.12)',
+    background: 'var(--tone-danger-bg)',
     border: '1px solid var(--color-danger)',
-    color: '#fca5a5'
+    color: 'var(--tone-danger-text)'
   },
   approved: {
     text: 'Your listing is approved and visible in Scoutify search.',
-    background: 'rgba(20, 241, 149, 0.12)',
+    background: 'var(--tone-success-bg)',
     border: '1px solid var(--color-primary)',
-    color: '#a7f3d0'
+    color: 'var(--tone-success-text)'
   },
   verified: {
     text: 'Your listing is live in Scoutify search.',
-    background: 'rgba(20, 241, 149, 0.12)',
+    background: 'var(--tone-success-bg)',
     border: '1px solid var(--color-primary)',
-    color: '#a7f3d0'
+    color: 'var(--tone-success-text)'
   }
 };
 
@@ -74,9 +74,9 @@ function TwoFactorPanel({ user, auth }) {
       <h4 style={{ fontSize: '15px', marginBottom: '10px' }}>Google Authenticator (2FA)</h4>
       {mustEnable && (
         <div style={{
-          background: 'rgba(250, 204, 21, 0.12)',
-          border: '1px solid rgba(250, 204, 21, 0.35)',
-          color: '#fde68a',
+          background: 'var(--tone-warning-bg)',
+          border: '1px solid var(--tone-warning-border)',
+          color: 'var(--tone-warning-text)',
           padding: '10px 12px',
           borderRadius: '8px',
           fontSize: '13px',
@@ -91,7 +91,7 @@ function TwoFactorPanel({ user, auth }) {
       </p>
       {user.twoFactorEnabled ? (
         isAdmin ? (
-          <p style={{ fontSize: '13px', color: '#a7f3d0' }}>Authenticator is enabled (required for admins).</p>
+          <p style={{ fontSize: '13px', color: 'var(--tone-success-text)' }}>Authenticator is enabled (required for admins).</p>
         ) : (
           <form onSubmit={disableTotp}>
             <label className="form-label">Current app code to disable</label>
@@ -131,7 +131,7 @@ function TwoFactorPanel({ user, auth }) {
             required
             style={{ marginBottom: '10px' }}
           />
-          <button type="submit" className="btn btn-primary" disabled={totpBusy} style={{ width: '100%', fontSize: '13px', padding: '8px', color: '#000', marginBottom: '8px' }}>
+          <button type="submit" className="btn btn-primary" disabled={totpBusy} style={{ width: '100%', fontSize: '13px', padding: '8px', marginBottom: '8px' }}>
             Confirm and enable
           </button>
           {!mustEnable && (
@@ -141,7 +141,7 @@ function TwoFactorPanel({ user, auth }) {
           )}
         </form>
       ) : (
-        <button type="button" className="btn btn-primary" disabled={totpBusy} onClick={startTotpSetup} style={{ width: '100%', fontSize: '13px', padding: '8px', color: '#000' }}>
+        <button type="button" className="btn btn-primary" disabled={totpBusy} onClick={startTotpSetup} style={{ width: '100%', fontSize: '13px', padding: '8px' }}>
           Set up Google Authenticator
         </button>
       )}
@@ -220,7 +220,7 @@ function AccountSecurityPanel({ user, auth }) {
           required
           style={{ marginBottom: '10px' }}
         />
-        <button type="submit" className="btn btn-primary" disabled={accountBusy} style={{ width: '100%', fontSize: '13px', padding: '8px', color: '#000' }}>
+        <button type="submit" className="btn btn-primary" disabled={accountBusy} style={{ width: '100%', fontSize: '13px', padding: '8px' }}>
           Change Password
         </button>
       </form>
@@ -239,7 +239,7 @@ function AccountSecurityPanel({ user, auth }) {
               required
               style={{ marginBottom: '10px' }}
             />
-            <button type="submit" className="btn btn-primary" disabled={accountBusy} style={{ width: '100%', fontSize: '13px', padding: '8px', color: '#000' }}>
+            <button type="submit" className="btn btn-primary" disabled={accountBusy} style={{ width: '100%', fontSize: '13px', padding: '8px' }}>
               Confirm Email
             </button>
           </form>
@@ -286,7 +286,7 @@ function AccountSecurityPanel({ user, auth }) {
               required
               style={{ marginBottom: '10px' }}
             />
-            <button type="submit" className="btn btn-primary" disabled={accountBusy} style={{ width: '100%', fontSize: '13px', padding: '8px', color: '#000' }}>
+            <button type="submit" className="btn btn-primary" disabled={accountBusy} style={{ width: '100%', fontSize: '13px', padding: '8px' }}>
               Confirm Phone
             </button>
           </form>
@@ -377,7 +377,7 @@ function CategoryPicker({ label, selected, onChange, placeholder }) {
             type="button"
             key={category}
             className={`btn ${selected.includes(category) ? 'btn-primary' : 'btn-secondary'}`}
-            style={{ padding: '6px 12px', fontSize: '12px', color: selected.includes(category) ? '#000' : undefined }}
+            style={{ padding: '6px 12px', fontSize: '12px', color: selected.includes(category) ? 'var(--color-on-primary)' : undefined }}
             onClick={() => toggle(category)}
           >
             {category}
@@ -449,8 +449,8 @@ function ArtisanListingForm({ user, auth }) {
         </div>
 
         {companyChanged && (
-          <div style={{ marginBottom: '14px', padding: '12px', borderRadius: '8px', border: '1px solid rgba(250, 204, 21, 0.35)', background: 'rgba(250, 204, 21, 0.08)' }}>
-            <p style={{ fontSize: '12px', color: '#fde68a', marginBottom: '8px' }}>
+          <div style={{ marginBottom: '14px', padding: '12px', borderRadius: '8px', border: '1px solid var(--tone-warning-border)', background: 'var(--tone-warning-bg)' }}>
+            <p style={{ fontSize: '12px', color: 'var(--tone-warning-text)', marginBottom: '8px' }}>
               Company name changed{user?.artisanProfile?.companyName ? ` from “${user.artisanProfile.companyName}”` : ''}. Enter password to save.
             </p>
             <ReauthFields
@@ -687,8 +687,8 @@ function ClientProfileForm({ user, auth, onNavigate }) {
         )}
 
         {companyChanged && (
-          <div style={{ marginBottom: '14px', padding: '12px', borderRadius: '8px', border: '1px solid rgba(250, 204, 21, 0.35)', background: 'rgba(250, 204, 21, 0.08)' }}>
-            <p style={{ fontSize: '12px', color: '#fde68a', marginBottom: '8px' }}>
+          <div style={{ marginBottom: '14px', padding: '12px', borderRadius: '8px', border: '1px solid var(--tone-warning-border)', background: 'var(--tone-warning-bg)' }}>
+            <p style={{ fontSize: '12px', color: 'var(--tone-warning-text)', marginBottom: '8px' }}>
               Changing company details requires re-authentication.
             </p>
             <ReauthFields
@@ -745,7 +745,7 @@ function ClientPortalPanel({ user, auth, boards, onNavigate }) {
                 onChange={(e) => setNewBoardName(e.target.value)}
                 style={{ padding: '6px 12px', fontSize: '12px', height: 'auto', width: '160px' }}
               />
-              <button className="btn btn-primary" style={{ padding: '6px 12px', fontSize: '12px', color: '#000' }} onClick={() => createBoard(newBoardName)}>
+              <button className="btn btn-primary" style={{ padding: '6px 12px', fontSize: '12px' }} onClick={() => createBoard(newBoardName)}>
                 + Create
               </button>
             </div>
@@ -768,12 +768,12 @@ function ClientPortalPanel({ user, auth, boards, onNavigate }) {
                 ) : (
                   <div className="grid-container grid-2">
                     {activeBoard.vendors.map(vendor => (
-                      <div key={vendor._id} className="glass-card animate-fade-in" style={{ padding: '16px', border: '1px solid rgba(255,255,255,0.05)' }}>
+                      <div key={vendor._id} className="glass-card animate-fade-in" style={{ padding: '16px', border: '1px solid var(--border-subtle)' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '10px' }}>
-                          <h5 style={{ margin: 0, fontSize: '15px', color: '#fff' }}>{vendor.companyName}</h5>
+                          <h5 style={{ margin: 0, fontSize: '15px', color: 'var(--color-heading)' }}>{vendor.companyName}</h5>
                           <button
                             className="btn btn-outline"
-                            style={{ padding: '4px 8px', fontSize: '11px', color: 'var(--color-danger)', borderColor: 'rgba(255,75,75,0.2)' }}
+                            style={{ padding: '4px 8px', fontSize: '11px', color: 'var(--color-danger)', borderColor: 'var(--tone-danger-border)' }}
                             onClick={() => removeVendorFromBoard(activeBoard._id, vendor._id)}
                           >
                             Remove

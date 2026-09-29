@@ -20,13 +20,13 @@ export function PaymentReauthModal({
       <div className="modal-content" style={{ maxWidth: '420px' }}>
         <h3 style={{ marginBottom: '8px' }}>Confirm upgrade</h3>
         <p style={{ fontSize: '13px', color: 'var(--color-text-secondary)', marginBottom: '14px' }}>
-          Re-authenticate to change your subscription to <strong style={{ color: '#fff' }}>{plan}</strong>.
+          Re-authenticate to change your subscription to <strong style={{ color: 'var(--color-heading)' }}>{plan}</strong>.
         </p>
         {reauthError && (
           <div style={{
-            background: 'rgba(239,68,68,0.15)',
+            background: 'var(--tone-danger-bg)',
             border: '1px solid var(--color-danger)',
-            color: '#fca5a5',
+            color: 'var(--tone-danger-text)',
             padding: '10px 12px',
             borderRadius: '8px',
             fontSize: '13px',
@@ -44,7 +44,7 @@ export function PaymentReauthModal({
             emailCodeBusy={emailCodeBusy}
           />
           <div style={{ display: 'flex', gap: '10px' }}>
-            <button type="submit" className="btn btn-primary" disabled={reauthBusy} style={{ flex: 1, color: '#000' }}>
+            <button type="submit" className="btn btn-primary" disabled={reauthBusy} style={{ flex: 1 }}>
               Continue to payment
             </button>
             <button type="button" className="btn btn-outline" disabled={reauthBusy} onClick={onCancel} style={{ flex: 1 }}>

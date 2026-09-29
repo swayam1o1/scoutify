@@ -126,13 +126,13 @@ export function AuthModal({ auth }) {
 
         {/* Error alerts */}
         {authError && (
-          <div style={{ background: 'rgba(239,68,68,0.15)', border: '1px solid var(--color-danger)', color: '#fca5a5', padding: '12px', borderRadius: '8px', fontSize: '14px', marginBottom: '16px' }}>
+          <div style={{ background: 'var(--tone-danger-bg)', border: '1px solid var(--color-danger)', color: 'var(--tone-danger-text)', padding: '12px', borderRadius: '8px', fontSize: '14px', marginBottom: '16px' }}>
             {authError}
           </div>
         )}
 
         {authSuccess && (
-          <div style={{ background: 'rgba(20,241,149,0.15)', border: '1px solid var(--color-primary)', color: '#a7f3d0', padding: '12px', borderRadius: '8px', fontSize: '14px', marginBottom: '16px' }}>
+          <div style={{ background: 'var(--tone-success-bg)', border: '1px solid var(--color-primary)', color: 'var(--tone-success-text)', padding: '12px', borderRadius: '8px', fontSize: '14px', marginBottom: '16px' }}>
             {authSuccess}
           </div>
         )}

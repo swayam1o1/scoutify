@@ -93,7 +93,7 @@ export function CatalogueManager({ token, hasListing }) {
       </p>
 
       {!hasListing ? (
-        <p style={{ fontSize: '13px', color: '#fde68a' }}>Save your listing details above before adding catalogue products.</p>
+        <p style={{ fontSize: '13px', color: 'var(--tone-warning-text)' }}>Save your listing details above before adding catalogue products.</p>
       ) : (
         <form onSubmit={addItem} style={{ marginBottom: '18px' }}>
           <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
@@ -111,7 +111,7 @@ export function CatalogueManager({ token, hasListing }) {
                 cursor: atLimit ? 'not-allowed' : 'pointer',
                 overflow: 'hidden',
                 position: 'relative',
-                background: 'rgba(255,255,255,0.02)'
+                background: 'var(--surface-1)'
               }}
             >
               {image ? (

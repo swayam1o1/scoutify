@@ -1,23 +1,110 @@
-/* Clean, Modern Dark Mode Design System for Scoutify */
+/* Scoutify design system — dark (default) and light themes */
 @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap');
 
 :root {
+  color-scheme: dark;
+
   --bg-primary: #0a0b10;
   --bg-secondary: #12131a;
   --bg-glass: rgba(18, 19, 26, 0.7);
+  --bg-card: rgba(22, 25, 37, 0.9);
+  --bg-elevated: #161925;
+  --bg-navbar: rgba(10, 11, 16, 0.8);
+  --bg-overlay: rgba(0, 0, 0, 0.85);
+  --bg-scrim: rgba(10, 11, 16, 0.6);
+  --bg-inset: rgba(0, 0, 0, 0.2);
+
+  --surface-1: rgba(255, 255, 255, 0.02);
+  --surface-2: rgba(255, 255, 255, 0.04);
+  --surface-3: rgba(255, 255, 255, 0.08);
+  --surface-4: rgba(255, 255, 255, 0.12);
+
   --border-color: rgba(255, 255, 255, 0.08);
+  --border-subtle: rgba(255, 255, 255, 0.05);
+  --border-strong: rgba(255, 255, 255, 0.16);
   --border-glow: rgba(20, 241, 149, 0.2);
-  
+
   --color-primary: #14f195; /* Neon Emerald */
   --color-secondary: #9945ff; /* Hyper Purple */
+  --color-heading: #ffffff;
   --color-text-primary: #f3f4f6;
   --color-text-secondary: #9ca3af;
+  --color-text-disabled: rgba(255, 255, 255, 0.3);
+  --color-on-primary: #000000;
   --color-danger: #ef4444;
   --color-warning: #f59e0b;
-  
+  --hero-gradient-end: #a5a6b5;
+
+  --tone-success-bg: rgba(20, 241, 149, 0.12);
+  --tone-success-border: rgba(20, 241, 149, 0.35);
+  --tone-success-text: #a7f3d0;
+  --tone-danger-bg: rgba(239, 68, 68, 0.12);
+  --tone-danger-border: rgba(239, 68, 68, 0.35);
+  --tone-danger-text: #fca5a5;
+  --tone-warning-bg: rgba(250, 204, 21, 0.1);
+  --tone-warning-border: rgba(250, 204, 21, 0.35);
+  --tone-warning-text: #fde68a;
+  --tone-purple-bg: rgba(153, 69, 255, 0.08);
+  --tone-purple-border: rgba(153, 69, 255, 0.25);
+  --tone-purple-text: #d8b4fe;
+  --tone-purple-strong: #c084fc;
+
   --font-family: 'Outfit', sans-serif;
   --transition-smooth: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   --shadow-lg: 0 10px 30px -10px rgba(0, 0, 0, 0.7);
+  --shadow-menu: 0 16px 40px rgba(0, 0, 0, 0.45);
+}
+
+[data-theme='light'] {
+  color-scheme: light;
+
+  --bg-primary: #f4f6fb;
+  --bg-secondary: #ffffff;
+  --bg-glass: rgba(255, 255, 255, 0.75);
+  --bg-card: #ffffff;
+  --bg-elevated: #ffffff;
+  --bg-navbar: rgba(255, 255, 255, 0.85);
+  --bg-overlay: rgba(15, 23, 42, 0.55);
+  --bg-scrim: rgba(244, 246, 251, 0.7);
+  --bg-inset: rgba(15, 23, 42, 0.06);
+
+  --surface-1: rgba(15, 23, 42, 0.02);
+  --surface-2: rgba(15, 23, 42, 0.04);
+  --surface-3: rgba(15, 23, 42, 0.07);
+  --surface-4: rgba(15, 23, 42, 0.1);
+
+  --border-color: rgba(15, 23, 42, 0.1);
+  --border-subtle: rgba(15, 23, 42, 0.07);
+  --border-strong: rgba(15, 23, 42, 0.2);
+  --border-glow: rgba(5, 150, 105, 0.25);
+
+  --color-primary: #059669;
+  --color-secondary: #7c3aed;
+  --color-heading: #0f172a;
+  --color-text-primary: #1f2937;
+  --color-text-secondary: #64748b;
+  --color-text-disabled: rgba(15, 23, 42, 0.35);
+  --color-on-primary: #000000;
+  --color-danger: #dc2626;
+  --color-warning: #d97706;
+  --hero-gradient-end: #475569;
+
+  --tone-success-bg: rgba(5, 150, 105, 0.1);
+  --tone-success-border: rgba(5, 150, 105, 0.35);
+  --tone-success-text: #047857;
+  --tone-danger-bg: rgba(220, 38, 38, 0.08);
+  --tone-danger-border: rgba(220, 38, 38, 0.3);
+  --tone-danger-text: #b91c1c;
+  --tone-warning-bg: rgba(217, 119, 6, 0.1);
+  --tone-warning-border: rgba(217, 119, 6, 0.35);
+  --tone-warning-text: #92400e;
+  --tone-purple-bg: rgba(124, 58, 237, 0.07);
+  --tone-purple-border: rgba(124, 58, 237, 0.25);
+  --tone-purple-text: #6d28d9;
+  --tone-purple-strong: #7c3aed;
+
+  --shadow-lg: 0 10px 30px -12px rgba(15, 23, 42, 0.18);
+  --shadow-menu: 0 16px 40px rgba(15, 23, 42, 0.16);
 }
 
 * {
@@ -35,6 +122,7 @@ body {
   min-height: 100vh;
   overflow-x: hidden;
   line-height: 1.5;
+  transition: background-color 0.25s ease, color 0.25s ease;
 }
 
 /* Glassmorphism utility */
@@ -46,7 +134,7 @@ body {
 }
 
 .glass-card {
-  background: rgba(22, 25, 37, 0.9);
+  background: var(--bg-card);
   border: 1px solid var(--border-color);
   border-radius: 16px;
   padding: 24px;
@@ -55,8 +143,8 @@ body {
 }
 
 .glass-card:hover {
-  border-color: rgba(20, 241, 149, 0.3);
-  box-shadow: 0 12px 40px -12px rgba(20, 241, 149, 0.15);
+  border-color: var(--tone-success-border);
+  box-shadow: 0 12px 40px -12px var(--border-glow);
   transform: translateY(-4px);
 }
 
@@ -71,7 +159,7 @@ body {
 h1, h2, h3, h4 {
   font-weight: 600;
   letter-spacing: -0.02em;
-  color: #fff;
+  color: var(--color-heading);
 }
 
 a {
@@ -101,24 +189,24 @@ a:hover {
 
 .btn-primary {
   background: linear-gradient(135deg, var(--color-primary), #00c6ff);
-  color: #000;
+  color: var(--color-on-primary);
   font-weight: 600;
 }
 
 .btn-primary:hover {
   transform: translateY(-2px);
-  box-shadow: 0 6px 20px -5px rgba(20, 241, 149, 0.4);
+  box-shadow: 0 6px 20px -5px var(--tone-success-border);
 }
 
 .btn-secondary {
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--surface-2);
   color: var(--color-text-primary);
   border-color: var(--border-color);
 }
 
 .btn-secondary:hover {
-  background: rgba(255, 255, 255, 0.1);
-  border-color: rgba(255, 255, 255, 0.2);
+  background: var(--surface-3);
+  border-color: var(--border-strong);
 }
 
 .btn-outline {
@@ -128,8 +216,8 @@ a:hover {
 }
 
 .btn-outline:hover {
-  background: rgba(20, 241, 149, 0.1);
-  box-shadow: 0 4px 15px -4px rgba(20, 241, 149, 0.2);
+  background: var(--tone-success-bg);
+  box-shadow: 0 4px 15px -4px var(--border-glow);
 }
 
 .btn-purple {
@@ -165,27 +253,31 @@ a:hover {
 .form-control {
   width: 100%;
   padding: 12px 16px;
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--surface-1);
   border: 1px solid var(--border-color);
   border-radius: 10px;
-  color: #fff;
+  color: var(--color-heading);
   font-size: 15px;
   transition: var(--transition-smooth);
+}
+
+.form-control::placeholder {
+  color: var(--color-text-secondary);
+  opacity: 0.8;
 }
 
 .form-control:focus {
   outline: none;
   border-color: var(--color-primary);
-  background: rgba(255, 255, 255, 0.06);
-  box-shadow: 0 0 0 3px rgba(20, 241, 149, 0.15);
+  background: var(--surface-2);
+  box-shadow: 0 0 0 3px var(--border-glow);
 }
 
 .form-select {
   appearance: none;
   -webkit-appearance: none;
   -moz-appearance: none;
-  color-scheme: dark;
-  background-color: rgba(255, 255, 255, 0.03);
+  background-color: var(--surface-1);
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%239ca3af'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
   background-position: right 16px center;
@@ -196,8 +288,8 @@ a:hover {
 
 .form-select option,
 select.form-control option {
-  background-color: #12131a;
-  color: #f3f4f6;
+  background-color: var(--bg-secondary);
+  color: var(--color-text-primary);
 }
 
 /* Custom dark dropdown (preferred over native select on Windows) */
@@ -212,12 +304,12 @@ select.form-control option {
   gap: 12px;
   text-align: left;
   cursor: pointer;
-  color: #fff;
+  color: var(--color-heading);
 }
 
 .dark-select-trigger.is-open {
   border-color: var(--color-primary);
-  box-shadow: 0 0 0 3px rgba(20, 241, 149, 0.15);
+  box-shadow: 0 0 0 3px var(--border-glow);
 }
 
 .dark-select-menu {
@@ -231,10 +323,10 @@ select.form-control option {
   list-style: none;
   max-height: 220px;
   overflow-y: auto;
-  background: #161925;
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-strong);
   border-radius: 12px;
-  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.55);
+  box-shadow: var(--shadow-menu);
 }
 
 .dark-select-option {
@@ -243,7 +335,7 @@ select.form-control option {
   text-align: left;
   border: none;
   background: transparent;
-  color: #f3f4f6;
+  color: var(--color-text-primary);
   padding: 10px 12px;
   border-radius: 8px;
   font-size: 14px;
@@ -252,8 +344,8 @@ select.form-control option {
 
 .dark-select-option:hover,
 .dark-select-option.is-selected {
-  background: rgba(20, 241, 149, 0.12);
-  color: #14f195;
+  background: var(--tone-success-bg);
+  color: var(--color-primary);
 }
 
 /* Animations */
@@ -285,7 +377,7 @@ select.form-control option {
   border-radius: 10px;
   font-size: 14px;
   font-weight: 500;
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+  box-shadow: var(--shadow-menu);
   animation: toastSlideIn 0.28s ease-out;
   pointer-events: auto;
 }
@@ -293,13 +385,23 @@ select.form-control option {
 .toast-success {
   background: rgba(12, 40, 32, 0.96);
   border: 1px solid rgba(20, 241, 149, 0.55);
-  color: #a7f3d0;
+  color: var(--tone-success-text);
 }
 
 .toast-error {
   background: rgba(48, 16, 16, 0.96);
   border: 1px solid rgba(239, 68, 68, 0.55);
-  color: #fca5a5;
+  color: var(--tone-danger-text);
+}
+
+[data-theme='light'] .toast-success {
+  background: #ecfdf5;
+  border-color: var(--tone-success-border);
+}
+
+[data-theme='light'] .toast-error {
+  background: #fef2f2;
+  border-color: var(--tone-danger-border);
 }
 
 .toast-text {
@@ -371,7 +473,7 @@ select.form-control option {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--surface-4);
   border-radius: 4px;
 }
 

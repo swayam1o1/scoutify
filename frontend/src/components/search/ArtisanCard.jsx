@@ -177,7 +177,7 @@ export function ArtisanCard({
                   placeholder="Create new board..."
                   value={quickNewBoardName}
                   onChange={(e) => setQuickNewBoardName(e.target.value)}
-                  style={{ padding: '6px 10px', fontSize: '12px', height: 'auto', marginBottom: '6px', background: 'rgba(255,255,255,0.02)' }}
+                  style={{ padding: '6px 10px', fontSize: '12px', height: 'auto', marginBottom: '6px', background: 'var(--surface-1)' }}
                 />
                 <button
                   className="btn btn-primary"
@@ -193,8 +193,8 @@ export function ArtisanCard({
       )}
 
       {artisan.aiReasoning && (
-        <div style={{ background: 'rgba(153, 69, 255, 0.06)', border: '1px solid rgba(153, 69, 255, 0.15)', padding: '12px', borderRadius: '8px', marginTop: '10px', fontSize: '13px', textAlign: 'left' }}>
-          <strong style={{ color: '#c084fc', display: 'block', marginBottom: '4px', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+        <div style={{ background: 'var(--tone-purple-bg)', border: '1px solid var(--tone-purple-border)', padding: '12px', borderRadius: '8px', marginTop: '10px', fontSize: '13px', textAlign: 'left' }}>
+          <strong style={{ color: 'var(--tone-purple-strong)', display: 'block', marginBottom: '4px', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
             AI Match Reasoning
           </strong>
           {artisan.aiReasoning}

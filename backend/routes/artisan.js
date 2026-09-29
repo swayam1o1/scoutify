@@ -2,7 +2,8 @@ const express = require('express');
 const router = express.Router();
 const Artisan = require('../models/Artisan');
 const { requireAuth, requireRole } = require('../middleware/auth');
-const { toList, buildSearchText } = require('../utils/artisanFields');
+const { toList, buildSearchText, pickListingSnapshot } = require('../utils/artisanFields');
+const { PUBLIC_CONTACT_STATUSES } = require('../constants/artisan');
 const { assertReauth, clearReauthChallenge, companyNameChanged } = require('../utils/reauth');
 const { sanitizeCatalogue } = require('../utils/sanitizeArtisan');
 const { parseImageDataUrl, ImageUploadError } = require('../utils/imageUpload');
@@ -89,11 +90,20 @@ router.post('/profile', async (req, res) => {
     req.user.artisanProfile = profile;
     await req.user.save();
 
+    // Listings approved before snapshots existed: keep the live version as the review baseline.
+    const existingListing = await Artisan.findOne({ userId: req.user._id }).select('-embedding -catalogue');
+    const baseline = existingListing && !existingListing.approvedSnapshot
+      && PUBLIC_CONTACT_STATUSES.includes(existingListing.contactStatus)
+      ? { approvedSnapshot: pickListingSnapshot(existingListing), lastApprovedAt: existingListing.updatedAt }
+      : {};
+
     const listing = await Artisan.findOneAndUpdate(
       { userId: req.user._id },
       {
         ...profile,
+        ...baseline,
         contactStatus: 'pending',
+        changeRequestedAt: new Date(),
         searchText: buildSearchText(profile),
         userId: req.user._id
       },

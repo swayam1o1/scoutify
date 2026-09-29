@@ -23,11 +23,11 @@ export function DemoHud({ isCollapsed, setIsCollapsed, onDemoLogin, onPaywallDem
                 Login as Client Basic
               </button>
               <button className="yc-hud-btn" onClick={() => onDemoLogin('client_pro')}>
-                <UserIcon size={14} style={{ color: '#c084fc' }} />
+                <UserIcon size={14} style={{ color: 'var(--tone-purple-strong)' }} />
                 Login as Client Pro
               </button>
               <button className="yc-hud-btn" onClick={() => onDemoLogin('artisan')}>
-                <Briefcase size={14} style={{ color: '#14f195' }} />
+                <Briefcase size={14} style={{ color: 'var(--color-primary)' }} />
                 Login as Artisan
               </button>
             </div>
@@ -41,13 +41,13 @@ export function DemoHud({ isCollapsed, setIsCollapsed, onDemoLogin, onPaywallDem
                 Trigger Sourcing Paywall
               </button>
               <button className="yc-hud-btn yc-hud-btn-purple" onClick={onAiDemo}>
-                <Sparkles size={14} style={{ color: '#c084fc' }} />
+                <Sparkles size={14} style={{ color: 'var(--tone-purple-strong)' }} />
                 Run AI Matchmaker
               </button>
             </div>
           </div>
 
-          <div style={{ fontSize: '10px', color: 'var(--color-text-secondary)', textAlign: 'center', marginTop: '10px', borderTop: '1px dashed rgba(255,255,255,0.05)', paddingTop: '6px' }}>
+          <div style={{ fontSize: '10px', color: 'var(--color-text-secondary)', textAlign: 'center', marginTop: '10px', borderTop: '1px dashed var(--border-color)', paddingTop: '6px' }}>
             One-click testing helper for YC reviewers
           </div>
         </>

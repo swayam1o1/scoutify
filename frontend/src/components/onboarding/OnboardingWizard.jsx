@@ -232,16 +232,16 @@ export function OnboardingWizard({ user, token, onComplete, onDraftSaved, onCanc
               ? `Step ${step + 1} of ${TOTAL_STEPS} — changes save as you move between steps.`
               : `Step ${step + 1} of ${TOTAL_STEPS} — progress is saved automatically. Finish to unlock search, boards, and plans.`}
           </p>
-          <div style={{ height: '6px', borderRadius: '999px', background: 'rgba(255,255,255,0.08)', overflow: 'hidden' }}>
+          <div style={{ height: '6px', borderRadius: '999px', background: 'var(--surface-3)', overflow: 'hidden' }}>
             <div style={{ width: `${progress}%`, height: '100%', background: 'var(--color-primary)', transition: 'width 0.25s ease' }} />
           </div>
         </div>
 
         {error && (
           <div style={{
-            background: 'rgba(239,68,68,0.15)',
+            background: 'var(--tone-danger-bg)',
             border: '1px solid var(--color-danger)',
-            color: '#fca5a5',
+            color: 'var(--tone-danger-text)',
             padding: '10px 12px',
             borderRadius: '8px',
             fontSize: '13px',
@@ -253,9 +253,9 @@ export function OnboardingWizard({ user, token, onComplete, onDraftSaved, onCanc
 
         {info && !error && (
           <div style={{
-            background: 'rgba(34,197,94,0.12)',
-            border: '1px solid rgba(34,197,94,0.35)',
-            color: '#a7f3d0',
+            background: 'var(--tone-success-bg)',
+            border: '1px solid var(--tone-success-border)',
+            color: 'var(--tone-success-text)',
             padding: '10px 12px',
             borderRadius: '8px',
             fontSize: '13px',
@@ -355,7 +355,7 @@ export function OnboardingWizard({ user, token, onComplete, onDraftSaved, onCanc
                     type="button"
                     key={category}
                     className={`btn ${selected ? 'btn-primary' : 'btn-secondary'}`}
-                    style={{ padding: '6px 12px', fontSize: '12px', color: selected ? '#000' : undefined }}
+                    style={{ padding: '6px 12px', fontSize: '12px', color: selected ? 'var(--color-on-primary)' : undefined }}
                     onClick={() => toggleInterest(category)}
                   >
                     {category}
@@ -394,7 +394,7 @@ export function OnboardingWizard({ user, token, onComplete, onDraftSaved, onCanc
               <p style={{ fontSize: '12px', color: 'var(--color-text-secondary)' }}>{geoStatus}</p>
             )}
             {form.geoAllowed && form.geoLat != null && (
-              <p style={{ fontSize: '12px', color: '#a7f3d0' }}>
+              <p style={{ fontSize: '12px', color: 'var(--tone-success-text)' }}>
                 Saved coordinates: {Number(form.geoLat).toFixed(4)}, {Number(form.geoLng).toFixed(4)}
               </p>
             )}
@@ -413,11 +413,11 @@ export function OnboardingWizard({ user, token, onComplete, onDraftSaved, onCanc
             </button>
           )}
           {step < TOTAL_STEPS - 1 ? (
-            <button type="button" className="btn btn-primary" onClick={next} disabled={busy} style={{ flex: '1 1 140px', color: '#000' }}>
+            <button type="button" className="btn btn-primary" onClick={next} disabled={busy} style={{ flex: '1 1 140px' }}>
               {busy ? 'Saving...' : 'Continue'}
             </button>
           ) : (
-            <button type="button" className="btn btn-primary" onClick={finish} disabled={busy} style={{ flex: '1 1 140px', color: '#000' }}>
+            <button type="button" className="btn btn-primary" onClick={finish} disabled={busy} style={{ flex: '1 1 140px' }}>
               {busy ? 'Saving...' : (editMode ? 'Save changes' : 'Finish onboarding')}
             </button>
           )}

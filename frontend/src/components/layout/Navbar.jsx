@@ -1,5 +1,6 @@
 import { ShieldCheck } from 'lucide-react';
 import { UserMenu } from './UserMenu';
+import { ThemeToggle } from './ThemeToggle';
 
 export function Navbar({ currentView, user, onNavigate, onOpenBoards, onSignIn, onLogout }) {
   return (
@@ -42,9 +43,12 @@ export function Navbar({ currentView, user, onNavigate, onOpenBoards, onSignIn, 
             onLogout={onLogout}
           />
         ) : (
-          <button className="btn btn-primary" onClick={() => onSignIn('login')}>
-            Sign In
-          </button>
+          <>
+            <ThemeToggle />
+            <button className="btn btn-primary" onClick={() => onSignIn('login')}>
+              Sign In
+            </button>
+          </>
         )}
       </div>
     </nav>

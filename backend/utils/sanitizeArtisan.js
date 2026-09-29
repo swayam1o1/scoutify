@@ -57,7 +57,7 @@ function sanitizeArtisanForUser(artisan) {
   const plain = toPlain(artisan);
   if (!plain) return null;
   // Never send large embedding vectors to the client
-  const { embedding, ...rest } = plain;
+  const { embedding, approvedSnapshot, ...rest } = plain;
   return { ...rest, catalogue: sanitizeCatalogue(plain.catalogue), contactLocked: false };
 }
 
