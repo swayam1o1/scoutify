@@ -7,9 +7,9 @@ const QRCode = require('qrcode');
 const User = require('../models/User');
 const Artisan = require('../models/Artisan');
 const { requireAuth, signToken, bumpTokenVersion, isSessionValid } = require('../middleware/auth');
-const { sendEmailOtp, sendPhoneOtp, sendPasswordChangedNotice, sendPlainEmail, normalizePhone } = require('../utils/otpDelivery');
-const { assertReauth, clearReauthChallenge, companyNameChanged, verifyTotp } = require('../utils/reauth');
-const { deleteUserAccount } = require('../utils/accountDeletion');
+const { sendEmailOtp, sendPhoneOtp, sendPasswordChangedNotice, sendPlainEmail, normalizePhone } = require('../services/otpDeliveryService');
+const { assertReauth, clearReauthChallenge, companyNameChanged, verifyTotp } = require('../services/reauthService');
+const { deleteUserAccount } = require('../services/accountDeletionService');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'supersecretscoutifykey12345';
 const TOTP_ISSUER = process.env.TOTP_ISSUER || 'Scoutify';

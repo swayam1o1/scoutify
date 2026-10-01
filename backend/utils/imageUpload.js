@@ -1,3 +1,5 @@
+const HttpError = require('./httpError');
+
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 
 const MIME_EXTENSIONS = {
@@ -6,10 +8,10 @@ const MIME_EXTENSIONS = {
   'image/webp': 'webp'
 };
 
-class ImageUploadError extends Error {
+class ImageUploadError extends HttpError {
   constructor(message) {
-    super(message);
-    this.status = 400;
+    super(400, message);
+    this.name = 'ImageUploadError';
   }
 }
 
