@@ -23,6 +23,16 @@ function toPlain(artisan) {
   return { ...artisan };
 }
 
+function sanitizeCatalogueItem(item) {
+  if (!item) return null;
+  const { embedding, imageKey, ...rest } = typeof item.toObject === 'function' ? item.toObject() : item;
+  return rest;
+}
+
+function sanitizeCatalogue(catalogue) {
+  return Array.isArray(catalogue) ? catalogue.map(sanitizeCatalogueItem).filter(Boolean) : [];
+}
+
 function sanitizeArtisanForGuest(artisan) {
   const plain = toPlain(artisan);
   if (!plain) return null;
@@ -31,11 +41,13 @@ function sanitizeArtisanForGuest(artisan) {
   for (const key of PUBLIC_FIELDS) {
     if (plain[key] !== undefined) publicView[key] = plain[key];
   }
+  publicView.catalogue = sanitizeCatalogue(plain.catalogue);
 
   // Keep AI/search extras if present, without leaking contact
   if (plain.matchPercentage !== undefined) publicView.matchPercentage = plain.matchPercentage;
   if (plain.aiReasoning !== undefined) publicView.aiReasoning = plain.aiReasoning;
   if (plain.combinedScore !== undefined) publicView.combinedScore = plain.combinedScore;
+  if (plain.matchedItems !== undefined) publicView.matchedItems = plain.matchedItems;
 
   publicView.contactLocked = true;
   return publicView;
@@ -45,8 +57,8 @@ function sanitizeArtisanForUser(artisan) {
   const plain = toPlain(artisan);
   if (!plain) return null;
   // Never send large embedding vectors to the client
-  const { embedding, ...rest } = plain;
-  return { ...rest, contactLocked: false };
+  const { embedding, approvedSnapshot, ...rest } = plain;
+  return { ...rest, catalogue: sanitizeCatalogue(plain.catalogue), contactLocked: false };
 }
 
 function sanitizeArtisans(artisans, { isLoggedIn }) {
@@ -57,6 +69,7 @@ function sanitizeArtisans(artisans, { isLoggedIn }) {
 }
 
 module.exports = {
+  sanitizeCatalogue,
   sanitizeArtisanForGuest,
   sanitizeArtisanForUser,
   sanitizeArtisans

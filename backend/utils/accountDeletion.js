@@ -1,5 +1,8 @@
 const AuditLog = require('../models/AuditLog');
 const Artisan = require('../models/Artisan');
+const Notification = require('../models/Notification');
+const SearchLog = require('../models/SearchLog');
+const { deleteImage } = require('./storage');
 const { bumpTokenVersion } = require('../middleware/auth');
 
 /**
@@ -98,8 +101,18 @@ async function deleteUserAccount(user, { confirmText } = {}) {
 
   await user.save();
 
+  try {
+    await Promise.all([
+      Notification.deleteMany({ userId: user._id }),
+      SearchLog.deleteMany({ userId: user._id })
+    ]);
+  } catch (err) {
+    console.warn('Notification / search log cleanup failed:', err.message);
+  }
+
   // Hide + anonymize public vendor listing; clear portfolio image/links
   if (role === 'artisan') {
+    await Promise.all((listing?.catalogue || []).map(item => deleteImage(item.imageKey)));
     await Artisan.updateOne(
       { userId: user._id },
       {
@@ -117,6 +130,7 @@ async function deleteUserAccount(user, { confirmText } = {}) {
           products: [],
           customTags: [],
           portfolio: [],
+          catalogue: [],
           searchText: '',
           contactStatus: 'rejected'
         },

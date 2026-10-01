@@ -1,7 +1,9 @@
 import { ShieldCheck } from 'lucide-react';
 import { UserMenu } from './UserMenu';
+import { ThemeToggle } from './ThemeToggle';
+import { NotificationBell } from '../notifications/NotificationBell';
 
-export function Navbar({ currentView, user, onNavigate, onOpenBoards, onSignIn, onLogout }) {
+export function Navbar({ currentView, user, onNavigate, onOpenBoards, onSignIn, onLogout, notifications, onOpenSearchAlerts }) {
   return (
     <nav className="navbar">
       <div className="logo" onClick={() => onNavigate('search')} style={{ cursor: 'pointer' }}>
@@ -33,6 +35,10 @@ export function Navbar({ currentView, user, onNavigate, onOpenBoards, onSignIn, 
           </button>
         )}
 
+        {user && notifications && (
+          <NotificationBell notifications={notifications} onViewAll={onOpenSearchAlerts} />
+        )}
+
         {user ? (
           <UserMenu
             user={user}
@@ -42,9 +48,12 @@ export function Navbar({ currentView, user, onNavigate, onOpenBoards, onSignIn, 
             onLogout={onLogout}
           />
         ) : (
-          <button className="btn btn-primary" onClick={() => onSignIn('login')}>
-            Sign In
-          </button>
+          <>
+            <ThemeToggle />
+            <button className="btn btn-primary" onClick={() => onSignIn('login')}>
+              Sign In
+            </button>
+          </>
         )}
       </div>
     </nav>

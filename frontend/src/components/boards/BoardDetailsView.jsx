@@ -38,7 +38,7 @@ export function BoardDetailsView({ board, boards, user, onBack, onDeleteBoard })
         </div>
         <button
           className="btn btn-outline"
-          style={{ color: 'var(--color-danger)', borderColor: 'rgba(255,75,75,0.2)' }}
+          style={{ color: 'var(--color-danger)', borderColor: 'var(--tone-danger-border)' }}
           onClick={() => onDeleteBoard(board._id)}
         >
           Delete Board
@@ -64,15 +64,15 @@ export function BoardDetailsView({ board, boards, user, onBack, onDeleteBoard })
                     style={{
                       padding: '16px',
                       borderRadius: '12px',
-                      border: '1px solid rgba(255,255,255,0.04)',
-                      background: 'rgba(255,255,255,0.01)',
+                      border: '1px solid var(--border-subtle)',
+                      background: 'var(--surface-1)',
                       display: 'flex',
                       justifyContent: 'space-between',
                       alignItems: 'center'
                     }}
                   >
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                      <h4 style={{ margin: 0, fontSize: '15px', color: '#fff' }}>{vendor.companyName}</h4>
+                      <h4 style={{ margin: 0, fontSize: '15px', color: 'var(--color-heading)' }}>{vendor.companyName}</h4>
                       <div style={{ fontSize: '12px', color: 'var(--color-text-secondary)' }}>
                         📍 {vendor.city} | Specialties: {vendor.specialization?.slice(0, 2).join(', ')}
                       </div>
@@ -92,7 +92,7 @@ export function BoardDetailsView({ board, boards, user, onBack, onDeleteBoard })
 
                     <button
                       className="btn btn-outline"
-                      style={{ padding: '4px 8px', fontSize: '11px', color: 'var(--color-danger)', borderColor: 'rgba(255,75,75,0.2)' }}
+                      style={{ padding: '4px 8px', fontSize: '11px', color: 'var(--color-danger)', borderColor: 'var(--tone-danger-border)' }}
                       onClick={() => removeVendorFromBoard(board._id, vendor._id)}
                     >
                       Remove
@@ -103,7 +103,7 @@ export function BoardDetailsView({ board, boards, user, onBack, onDeleteBoard })
             )}
           </div>
 
-          <div className="glass-card" style={{ border: '1px solid rgba(153, 69, 255, 0.25)', position: 'relative' }}>
+          <div className="glass-card" style={{ border: '1px solid var(--tone-purple-border)', position: 'relative' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border-color)', paddingBottom: '10px', marginBottom: '16px' }}>
               <h3 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <span style={{ animation: 'pulse 2s infinite' }}>🪄</span> Recommended For You
@@ -119,8 +119,8 @@ export function BoardDetailsView({ board, boards, user, onBack, onDeleteBoard })
             ) : (
               <div>
                 {boardRationale && (
-                  <div style={{ background: 'rgba(153, 69, 255, 0.05)', border: '1px solid rgba(153, 69, 255, 0.15)', padding: '12px', borderRadius: '8px', fontSize: '13px', lineHeight: '1.4', marginBottom: '16px', color: 'var(--color-text-secondary)' }}>
-                    <strong style={{ color: '#c084fc', display: 'block', marginBottom: '4px', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                  <div style={{ background: 'var(--tone-purple-bg)', border: '1px solid var(--tone-purple-border)', padding: '12px', borderRadius: '8px', fontSize: '13px', lineHeight: '1.4', marginBottom: '16px', color: 'var(--color-text-secondary)' }}>
+                    <strong style={{ color: 'var(--tone-purple-strong)', display: 'block', marginBottom: '4px', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                       Sourcing Recommendation Rationale
                     </strong>
                     {boardRationale}
@@ -139,15 +139,15 @@ export function BoardDetailsView({ board, boards, user, onBack, onDeleteBoard })
                         style={{
                           padding: '12px',
                           borderRadius: '8px',
-                          border: '1px solid rgba(153, 69, 255, 0.15)',
-                          background: 'rgba(153, 69, 255, 0.02)',
+                          border: '1px solid var(--tone-purple-border)',
+                          background: 'var(--tone-purple-bg)',
                           display: 'flex',
                           justifyContent: 'space-between',
                           alignItems: 'center'
                         }}
                       >
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
-                          <div style={{ fontWeight: '600', fontSize: '14px', color: '#fff' }}>{rec.companyName}</div>
+                          <div style={{ fontWeight: '600', fontSize: '14px', color: 'var(--color-heading)' }}>{rec.companyName}</div>
                           <div style={{ fontSize: '11px', color: 'var(--color-text-secondary)' }}>
                             📍 {rec.city} | {rec.specialization?.slice(0, 2).join(', ')}
                           </div>
@@ -170,10 +170,10 @@ export function BoardDetailsView({ board, boards, user, onBack, onDeleteBoard })
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-          <div className="glass-card" style={{ border: '1px solid rgba(20, 241, 149, 0.15)' }}>
+          <div className="glass-card" style={{ border: '1px solid var(--border-glow)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border-color)', paddingBottom: '10px', marginBottom: '16px' }}>
               <h3 style={{ margin: 0 }}>Add Vendors to Sourcing Board</h3>
-              <div className="search-mode-tabs" style={{ background: 'rgba(0,0,0,0.2)', padding: '2px', borderRadius: '8px', display: 'flex' }}>
+              <div className="search-mode-tabs" style={{ background: 'var(--bg-inset)', padding: '2px', borderRadius: '8px', display: 'flex' }}>
                 <button
                   className={`btn ${boardSearchMode === 'standard' ? 'btn-primary' : ''}`}
                   style={{ padding: '4px 10px', fontSize: '11px', borderRadius: '6px' }}
@@ -270,15 +270,15 @@ export function BoardDetailsView({ board, boards, user, onBack, onDeleteBoard })
                           style={{
                             padding: '12px',
                             borderRadius: '8px',
-                            border: '1px solid rgba(255,255,255,0.04)',
-                            background: 'rgba(255,255,255,0.01)',
+                            border: '1px solid var(--border-subtle)',
+                            background: 'var(--surface-1)',
                             display: 'flex',
                             justifyContent: 'space-between',
                             alignItems: 'center'
                           }}
                         >
                           <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
-                            <div style={{ fontWeight: '500', fontSize: '13px', color: '#fff' }}>
+                            <div style={{ fontWeight: '500', fontSize: '13px', color: 'var(--color-heading)' }}>
                               {artisan.companyName}
                               {artisan.matchPercentage && (
                                 <span className="badge badge-purple" style={{ fontSize: '8px', padding: '2px 4px', marginLeft: '6px' }}>
@@ -295,7 +295,7 @@ export function BoardDetailsView({ board, boards, user, onBack, onDeleteBoard })
                             <button
                               className="btn"
                               disabled
-                              style={{ padding: '6px 10px', fontSize: '11px', background: 'rgba(255,255,255,0.04)', color: 'rgba(255,255,255,0.3)', border: 'none' }}
+                              style={{ padding: '6px 10px', fontSize: '11px', background: 'var(--surface-2)', color: 'var(--color-text-disabled)', border: 'none' }}
                             >
                               ✓ Added
                             </button>

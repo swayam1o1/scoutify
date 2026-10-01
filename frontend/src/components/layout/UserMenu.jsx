@@ -3,11 +3,14 @@ import {
   ChevronRight,
   FolderOpen,
   LogOut,
+  Moon,
   Settings,
+  Sun,
   ShieldCheck,
   User as UserIcon,
   ClipboardList
 } from 'lucide-react';
+import { useTheme } from '../../hooks/useTheme';
 
 function getInitials(name = '') {
   const parts = name.trim().split(/\s+/).filter(Boolean);
@@ -25,6 +28,7 @@ function roleLabel(user) {
 export function UserMenu({ user, currentView, onNavigate, onOpenBoards, onLogout }) {
   const [open, setOpen] = useState(false);
   const menuRef = useRef(null);
+  const { theme, setTheme } = useTheme();
 
   useEffect(() => {
     if (!open) return undefined;
@@ -152,6 +156,32 @@ export function UserMenu({ user, currentView, onNavigate, onOpenBoards, onLogout
               <span>Plans & billing</span>
             </button>
           )}
+
+          <div className="user-menu-divider" />
+
+          <div className="user-menu-theme">
+            <span className="user-menu-theme-label">Appearance</span>
+            <div className="user-menu-theme-switch" role="radiogroup" aria-label="Theme">
+              <button
+                type="button"
+                role="radio"
+                aria-checked={theme === 'light'}
+                className={theme === 'light' ? 'is-active' : ''}
+                onClick={() => setTheme('light')}
+              >
+                <Sun size={14} /> Light
+              </button>
+              <button
+                type="button"
+                role="radio"
+                aria-checked={theme === 'dark'}
+                className={theme === 'dark' ? 'is-active' : ''}
+                onClick={() => setTheme('dark')}
+              >
+                <Moon size={14} /> Dark
+              </button>
+            </div>
+          </div>
 
           <div className="user-menu-divider" />
 

@@ -5,7 +5,10 @@ const User = require('../models/User');
 const Artisan = require('../models/Artisan');
 const AuditLog = require('../models/AuditLog');
 const { requireAuth, requireAdmin, signToken } = require('../middleware/auth');
-const { toList, buildSearchText } = require('../utils/artisanFields');
+const { toList, buildSearchText, pickListingSnapshot, diffListing } = require('../utils/artisanFields');
+const { sanitizeArtisanForUser, sanitizeCatalogue } = require('../utils/sanitizeArtisan');
+const { deleteImage } = require('../utils/storage');
+const { refreshListingEmbedding } = require('../utils/listingEmbedding');
 const {
   CONTACT_STATUSES,
   ADMIN_ASSIGNABLE_STATUSES,
@@ -28,6 +31,19 @@ async function writeAudit(actor, action, targetType, targetId, meta) {
   } catch (err) {
     console.error('Audit log write failed:', err.message);
   }
+}
+
+function reviewSummary(vendor) {
+  const hasApprovedVersion = Boolean(vendor.approvedSnapshot);
+  const since = vendor.lastApprovedAt;
+  return {
+    hasApprovedVersion,
+    isFirstSubmission: !hasApprovedVersion && vendor.contactStatus === 'pending',
+    changes: hasApprovedVersion ? diffListing(vendor.approvedSnapshot, pickListingSnapshot(vendor)) : [],
+    newCatalogueCount: since
+      ? (vendor.catalogue || []).filter(item => item.createdAt && item.createdAt > since).length
+      : 0
+  };
 }
 
 // 1. ADMIN LOGIN — admin-role accounts only, separate from the consumer login.
@@ -144,15 +160,54 @@ router.get('/vendors', async (req, res) => {
     }
 
     const limit = Math.min(Number(req.query.limit) || 100, 500);
-    const vendors = await Artisan.find(query)
-      .select('-embedding')
+    const docs = await Artisan.find(query)
+      .select('-embedding -catalogue.embedding')
       .sort({ updatedAt: -1 })
       .limit(limit);
+
+    const vendors = docs.map(doc => {
+      const review = reviewSummary(doc);
+      return { ...doc.toJSON(), changeCount: review.changes.length, newCatalogueCount: review.newCatalogueCount, isFirstSubmission: review.isFirstSubmission };
+    });
 
     res.json({ vendors, count: vendors.length, total: await Artisan.countDocuments(query) });
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: 'Server error loading vendors.' });
+  }
+});
+
+// 3b. VENDOR DETAIL — full listing, owner account, and what changed since the last approval.
+router.get('/vendors/:id', async (req, res) => {
+  try {
+    const vendor = await Artisan.findById(req.params.id).select('-embedding -catalogue.embedding');
+    if (!vendor) return res.status(404).json({ message: 'Vendor not found.' });
+
+    const owner = vendor.userId
+      ? await User.findById(vendor.userId)
+        .select('name email phoneNumber phoneVerified isVerified isSuspended isDeleted twoFactorEnabled subscriptionPlan createdAt')
+        .lean()
+      : null;
+
+    const review = reviewSummary(vendor);
+    const since = vendor.lastApprovedAt;
+    const catalogue = sanitizeCatalogue(vendor.catalogue).map(item => ({
+      ...item,
+      isNew: since ? new Date(item.createdAt) > new Date(since) : !vendor.approvedSnapshot
+    }));
+
+    res.json({
+      vendor: { ...vendor.toJSON(), catalogue },
+      owner,
+      review: {
+        ...review,
+        lastApprovedAt: vendor.lastApprovedAt || null,
+        changeRequestedAt: vendor.changeRequestedAt || null
+      }
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Server error loading vendor details.' });
   }
 });
 
@@ -169,6 +224,11 @@ router.patch('/vendors/:id/status', async (req, res) => {
 
     const previousStatus = vendor.contactStatus;
     vendor.contactStatus = status;
+    if (status === 'approved') {
+      vendor.approvedSnapshot = pickListingSnapshot(vendor);
+      vendor.lastApprovedAt = new Date();
+      vendor.markModified('approvedSnapshot');
+    }
     await vendor.save();
 
     await writeAudit(req.user, 'vendor.status_changed', 'Artisan', vendor._id, {
@@ -177,7 +237,7 @@ router.patch('/vendors/:id/status', async (req, res) => {
       status
     });
 
-    res.json({ message: `Vendor marked ${status}.`, vendor });
+    res.json({ message: `Vendor marked ${status}.`, vendor: sanitizeArtisanForUser(vendor) });
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: 'Server error updating vendor status.' });
@@ -212,8 +272,13 @@ router.post('/vendors', async (req, res) => {
       contactStatus: status || 'approved'
     };
     payload.searchText = buildSearchText(payload);
+    if (payload.contactStatus === 'approved') {
+      payload.approvedSnapshot = pickListingSnapshot(payload);
+      payload.lastApprovedAt = new Date();
+    }
 
     const vendor = await Artisan.create(payload);
+    refreshListingEmbedding(vendor._id);
     await writeAudit(req.user, 'vendor.created', 'Artisan', vendor._id, {
       companyName: vendor.companyName,
       status: vendor.contactStatus
@@ -231,6 +296,7 @@ router.delete('/vendors/:id', async (req, res) => {
   try {
     const vendor = await Artisan.findByIdAndDelete(req.params.id);
     if (!vendor) return res.status(404).json({ message: 'Vendor not found.' });
+    await Promise.all((vendor.catalogue || []).map(item => deleteImage(item.imageKey)));
 
     await writeAudit(req.user, 'vendor.deleted', 'Artisan', vendor._id, {
       companyName: vendor.companyName,

@@ -17,6 +17,7 @@ export function useSearch({ token, user, onRequireAuth, demoLogin }) {
   // AI Sourcing state
   const [searchMode, setSearchMode] = useState('standard'); // 'standard' | 'ai'
   const [aiQuery, setAiQuery] = useState('');
+  const [aiImage, setAiImage] = useState('');
   const [aiLoaderStep, setAiLoaderStep] = useState(0);
 
   const {
@@ -26,7 +27,11 @@ export function useSearch({ token, user, onRequireAuth, demoLogin }) {
     hasSearched,
     searching,
     extracted: aiExtracted,
-    summary: aiSummary
+    summary: aiSummary,
+    suggestions: aiSuggestions,
+    searchedImage: aiSearchedImage,
+    personalized,
+    error: searchError
   } = searchByMode[searchMode];
   const isAiSearching = searchByMode.ai.searching;
 
@@ -36,7 +41,7 @@ export function useSearch({ token, user, onRequireAuth, demoLogin }) {
 
   const startSearchRequest = (mode) => {
     searchRequestId.current[mode] += 1;
-    updateSearchMode(mode, { searching: true, hasSearched: true });
+    updateSearchMode(mode, { searching: true, hasSearched: true, error: null });
     return searchRequestId.current[mode];
   };
 
@@ -51,6 +56,7 @@ export function useSearch({ token, user, onRequireAuth, demoLogin }) {
   // Perform search
   const handleSearch = async (e) => {
     if (e) e.preventDefault();
+    if (e && searchByMode.standard.searching) return;
     const requestId = startSearchRequest('standard');
     try {
       const queryParams = new URLSearchParams({
@@ -65,7 +71,8 @@ export function useSearch({ token, user, onRequireAuth, demoLogin }) {
       updateSearchMode('standard', {
         results: data.results || [],
         totalResults: data.totalResults || 0,
-        paywallActive: data.paywallActive || false
+        paywallActive: data.paywallActive || false,
+        personalized: Boolean(data.personalized)
       });
     } catch (err) {
       console.error(err);
@@ -76,38 +83,46 @@ export function useSearch({ token, user, onRequireAuth, demoLogin }) {
     }
   };
 
-  const handleAiSearch = async (e) => {
-    if (e) e.preventDefault();
-    if (!aiQuery.trim()) return;
+  const runAiSearch = async (queryText) => {
+    const brief = String(queryText || '').trim();
+    if (!brief) return;
 
     if (!user) {
       onRequireAuth?.('login');
       return;
     }
 
+    setAiQuery(brief);
+    await executeAiRequest('/search/ai', { query: brief }, { searchedImage: null });
+  };
+
+  const runImageSearch = async (image, noteText) => {
+    if (!image) return;
+
+    if (!user) {
+      onRequireAuth?.('login');
+      return;
+    }
+
+    const note = String(noteText || '').trim();
+    await executeAiRequest('/search/ai/image', { image, note }, { searchedImage: image });
+  };
+
+  const executeAiRequest = async (path, body, extraPatch) => {
     const requestId = startSearchRequest('ai');
     setAiLoaderStep(0);
-
-    const steps = [
-      "Analyzing project requirements...",
-      "Matching candidate specialties...",
-      "Resolving location constraints...",
-      "Ranking matching profiles..."
-    ];
 
     let currentStep = 0;
     const interval = setInterval(() => {
       currentStep++;
-      if (currentStep < steps.length) {
-        setAiLoaderStep(currentStep);
-      }
+      if (currentStep < 4) setAiLoaderStep(currentStep);
     }, 600);
 
     try {
-      const res = await authFetch('/search/ai', {
+      const res = await authFetch(path, {
         token,
         method: 'POST',
-        body: { query: aiQuery }
+        body
       });
 
       const data = await res.json();
@@ -115,7 +130,14 @@ export function useSearch({ token, user, onRequireAuth, demoLogin }) {
       if (!isLatestSearchRequest('ai', requestId)) return;
 
       if (!res.ok) {
-        alert(data.message || 'AI Matching failed.');
+        // Clear the previous results so they are not mistaken for this search's output
+        updateSearchMode('ai', {
+          ...createSearchModeState(),
+          hasSearched: true,
+          searching: true,
+          error: data.message || 'AI Matching failed.',
+          ...extraPatch
+        });
         return;
       }
 
@@ -124,16 +146,43 @@ export function useSearch({ token, user, onRequireAuth, demoLogin }) {
         totalResults: data.results?.length || 0,
         paywallActive: false,
         extracted: data.extracted || null,
-        summary: data.summary || null
+        summary: data.summary || null,
+        suggestions: Array.isArray(data.suggestions) ? data.suggestions : [],
+        personalized: Boolean(data.personalized),
+        ...extraPatch
       });
+      setAiQuery('');
+      setAiImage('');
     } catch (err) {
       clearInterval(interval);
       console.error(err);
+      if (isLatestSearchRequest('ai', requestId)) {
+        updateSearchMode('ai', {
+          ...createSearchModeState(),
+          hasSearched: true,
+          searching: true,
+          error: 'Could not reach the server. Check your connection and try again.',
+          ...extraPatch
+        });
+      }
     } finally {
       if (isLatestSearchRequest('ai', requestId)) {
         updateSearchMode('ai', { searching: false });
       }
     }
+  };
+
+  const handleAiSearch = async (e) => {
+    if (e) e.preventDefault();
+    if (isAiSearching) return;
+    if (aiImage) await runImageSearch(aiImage, aiQuery);
+    else await runAiSearch(aiQuery);
+  };
+
+  const handleAiSuggestion = (suggestion) => {
+    setSearchMode('ai');
+    setAiImage('');
+    runAiSearch(suggestion);
   };
 
   // YC HUD Helpers
@@ -200,7 +249,9 @@ export function useSearch({ token, user, onRequireAuth, demoLogin }) {
         totalResults: data.results?.length || 0,
         paywallActive: false,
         extracted: data.extracted || null,
-        summary: data.summary || null
+        summary: data.summary || null,
+        suggestions: Array.isArray(data.suggestions) ? data.suggestions : [],
+        searchedImage: null
       });
     } catch (err) {
       clearInterval(interval);
@@ -228,17 +279,24 @@ export function useSearch({ token, user, onRequireAuth, demoLogin }) {
     setSearchMode,
     aiQuery,
     setAiQuery,
+    aiImage,
+    setAiImage,
+    aiSearchedImage,
     aiLoaderStep,
     searchResults,
     totalResults,
     paywallActive,
+    personalized,
     hasSearched,
     searching,
+    searchError,
     isAiSearching,
     aiExtracted,
     aiSummary,
+    aiSuggestions,
     handleSearch,
     handleAiSearch,
+    handleAiSuggestion,
     handleHudPaywallDemo,
     handleHudAiDemo,
     resetSearch

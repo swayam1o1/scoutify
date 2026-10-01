@@ -26,6 +26,8 @@ export function useAdmin({ token, user, applySession }) {
   const [auditLogs, setAuditLogs] = useState([]);
   const [statusFilter, setStatusFilter] = useState('pending');
   const [newVendor, setNewVendor] = useState(EMPTY_VENDOR);
+  const [vendorDetail, setVendorDetail] = useState(null);
+  const [detailLoading, setDetailLoading] = useState(false);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
@@ -107,12 +109,39 @@ export function useAdmin({ token, user, applySession }) {
     }
   };
 
-  const setVendorStatus = (vendorId, status) =>
-    runAction(`/vendors/${vendorId}/status`, { method: 'PATCH', body: { status } }, 'Vendor updated.');
+  const openVendorDetail = async (vendorId) => {
+    setDetailLoading(true);
+    setVendorDetail({ loading: true });
+    try {
+      const { ok, data } = await call(`/vendors/${vendorId}`);
+      if (!ok) {
+        setVendorDetail(null);
+        setError(data.message || 'Could not load vendor details.');
+        return;
+      }
+      setVendorDetail(data);
+    } catch (err) {
+      console.error(err);
+      setVendorDetail(null);
+      setError('Connection error loading vendor details.');
+    } finally {
+      setDetailLoading(false);
+    }
+  };
 
-  const deleteVendor = (vendorId) => {
-    if (!confirm('Delete this vendor listing permanently?')) return Promise.resolve(false);
-    return runAction(`/vendors/${vendorId}`, { method: 'DELETE' }, 'Vendor deleted.');
+  const closeVendorDetail = () => setVendorDetail(null);
+
+  const setVendorStatus = async (vendorId, status) => {
+    const done = await runAction(`/vendors/${vendorId}/status`, { method: 'PATCH', body: { status } }, 'Vendor updated.');
+    if (done && vendorDetail?.vendor?._id === vendorId) await openVendorDetail(vendorId);
+    return done;
+  };
+
+  const deleteVendor = async (vendorId) => {
+    if (!confirm('Delete this vendor listing permanently?')) return false;
+    const done = await runAction(`/vendors/${vendorId}`, { method: 'DELETE' }, 'Vendor deleted.');
+    if (done && vendorDetail?.vendor?._id === vendorId) setVendorDetail(null);
+    return done;
   };
 
   const createVendor = async (e) => {
@@ -154,6 +183,10 @@ export function useAdmin({ token, user, applySession }) {
 
     // Actions
     loadConsole,
+    vendorDetail,
+    detailLoading,
+    openVendorDetail,
+    closeVendorDetail,
     setVendorStatus,
     deleteVendor,
     createVendor,

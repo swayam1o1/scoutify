@@ -1,6 +1,8 @@
-import { CheckCircle, MapPin, Search, ShieldCheck, Sparkles } from 'lucide-react';
+import { useRef } from 'react';
+import { CheckCircle, ImagePlus, MapPin, Search, ShieldCheck, Sparkles, X } from 'lucide-react';
 import { ArtisanCard } from './ArtisanCard';
 import { PaywallSection } from './PaywallSection';
+import { fileToResizedDataUrl, IMAGE_ACCEPT } from '../../utils/image';
 
 const AI_LOADER_STEPS = [
   'Analyzing project requirements...',
@@ -12,13 +14,13 @@ const AI_LOADER_STEPS = [
 function AiMatchmakerLoader({ aiLoaderStep }) {
   return (
     <div className="glass-card animate-fade-in" style={{ maxWidth: '450px', margin: '40px auto', padding: '30px', textAlign: 'center' }}>
-      <div className="spin" style={{ border: '4px solid rgba(255,255,255,0.1)', borderLeftColor: '#14f195', borderRadius: '50%', width: '40px', height: '40px', margin: '0 auto 20px' }}></div>
+      <div className="spin" style={{ border: '4px solid var(--surface-3)', borderLeftColor: 'var(--color-primary)', borderRadius: '50%', width: '40px', height: '40px', margin: '0 auto 20px' }}></div>
       <h3 style={{ marginBottom: '18px', fontSize: '18px' }}>Scoutify AI Matchmaker</h3>
       <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', textAlign: 'left', fontSize: '14px' }}>
         {AI_LOADER_STEPS.map((label, i) => (
-          <div key={label} style={{ display: 'flex', alignItems: 'center', gap: '10px', color: aiLoaderStep >= i ? '#14f195' : 'var(--color-text-secondary)' }}>
+          <div key={label} style={{ display: 'flex', alignItems: 'center', gap: '10px', color: aiLoaderStep >= i ? 'var(--color-primary)' : 'var(--color-text-secondary)' }}>
             {aiLoaderStep > i
-              ? <CheckCircle size={16} style={{ color: '#14f195' }} />
+              ? <CheckCircle size={16} style={{ color: 'var(--color-primary)' }} />
               : <div style={{ width: 16, height: 16, border: '2px solid', borderRadius: '50%', flexShrink: 0 }} />}
             <span>{label}</span>
           </div>
@@ -38,18 +40,42 @@ export function SearchView({ search, boards, user, onRequireAuth, onNavigate }) 
     setSearchMode,
     aiQuery,
     setAiQuery,
+    aiImage,
+    setAiImage,
+    aiSearchedImage,
     aiLoaderStep,
     searchResults,
     totalResults,
     paywallActive,
+    personalized,
     hasSearched,
     searching,
+    searchError,
     isAiSearching,
     aiExtracted,
     aiSummary,
+    aiSuggestions,
     handleSearch,
-    handleAiSearch
+    handleAiSearch,
+    handleAiSuggestion
   } = search;
+
+  const photoInput = useRef(null);
+
+  const pickPhoto = async (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    if (!user) {
+      onRequireAuth('login');
+      return;
+    }
+    try {
+      setAiImage(await fileToResizedDataUrl(file));
+    } catch (err) {
+      alert(err.message);
+    }
+  };
 
   // Hard-cap: basic plan users never see more than 10 results regardless of state
   const isCapped = user?.subscriptionPlan === 'basic' || !user;
@@ -66,6 +92,9 @@ export function SearchView({ search, boards, user, onRequireAuth, onNavigate }) 
     pushChip('Product', aiExtracted.productType || aiExtracted.service);
     pushChip('Material', aiExtracted.material);
     pushChip('Design', aiExtracted.designPreference);
+    if (Array.isArray(aiExtracted.colors) && aiExtracted.colors.length) {
+      pushChip('Colours', aiExtracted.colors.join(', '));
+    }
     pushChip('Location', aiExtracted.city || aiExtracted.location);
     if (aiExtracted.distanceKm) pushChip('Distance', `${aiExtracted.distanceKm} km`);
     pushChip('Quantity', aiExtracted.quantity);
@@ -129,18 +158,34 @@ export function SearchView({ search, boards, user, onRequireAuth, onNavigate }) 
                   onChange={(e) => setLocation(e.target.value)}
                 />
               </div>
-              <button type="submit" className="btn btn-primary" style={{ borderRadius: '10px' }}>
-                Find Artisans
+              <button
+                type="submit"
+                className="btn btn-primary"
+                style={{ borderRadius: '10px', opacity: searching ? 0.7 : 1, cursor: searching ? 'not-allowed' : 'pointer' }}
+                disabled={searching}
+              >
+                {searching ? (
+                  <>
+                    <span className="spin" style={{ width: 16, height: 16, border: '2px solid rgba(0,0,0,0.25)', borderLeftColor: '#000', borderRadius: '50%', display: 'inline-block' }} />
+                    Finding artisans…
+                  </>
+                ) : 'Find Artisans'}
               </button>
             </form>
           ) : (
             <form onSubmit={handleAiSearch} className="glass-card animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '16px', padding: '20px', textAlign: 'left' }}>
               <div>
-                <label className="form-label">Explain your project requirements in detail (use case, material, design, budget, city, distance)</label>
+                <label className="form-label">
+                  {aiImage
+                    ? 'Add a note about the item (optional): city, material, quantity...'
+                    : 'Explain your project requirements in detail (use case, material, design, budget, city, distance)'}
+                </label>
                 <textarea
                   className="form-control"
                   rows={3}
-                  placeholder='e.g. "Find handcrafted wooden furniture manufacturers near Bangalore for a hospitality project under 5 lakhs."'
+                  placeholder={aiImage
+                    ? 'e.g. "Need 20 of these for a cafe in Pune, in teak."'
+                    : 'e.g. "Find handcrafted wooden furniture manufacturers near Bangalore for a hospitality project under 5 lakhs."'}
                   value={aiQuery}
                   onChange={(e) => setAiQuery(e.target.value)}
                   onKeyDown={(e) => {
@@ -149,12 +194,58 @@ export function SearchView({ search, boards, user, onRequireAuth, onNavigate }) 
                       e.currentTarget.form?.requestSubmit();
                     }
                   }}
-                  required
+                  required={!aiImage}
                   style={{ resize: 'none' }}
                 />
               </div>
-              <button type="submit" className="btn btn-primary" style={{ width: '100%', justifyContent: 'center' }}>
-                <Sparkles size={18} /> Match Me with Artisans
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+                {aiImage ? (
+                  <div style={{ position: 'relative', width: '72px', height: '72px', borderRadius: '8px', overflow: 'hidden', border: '1px solid var(--border-color)' }}>
+                    <img src={aiImage} alt="Item to match" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                    <button
+                      type="button"
+                      className="btn btn-secondary"
+                      style={{ position: 'absolute', top: 4, right: 4, padding: '2px 5px' }}
+                      onClick={() => setAiImage('')}
+                      disabled={isAiSearching}
+                      aria-label="Remove photo"
+                    >
+                      <X size={12} />
+                    </button>
+                  </div>
+                ) : null}
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  style={{ padding: '8px 14px', fontSize: '13px', gap: '6px' }}
+                  onClick={() => (user ? photoInput.current?.click() : onRequireAuth('login'))}
+                  disabled={isAiSearching}
+                >
+                  <ImagePlus size={16} /> {aiImage ? 'Change photo' : 'Search by photo'}
+                </button>
+                <span style={{ fontSize: '12px', color: 'var(--color-text-secondary)', flex: 1, minWidth: '180px' }}>
+                  {aiImage
+                    ? "We'll match vendors who make or supply similar products."
+                    : 'Have a picture of the item you want? Upload it to find vendors who make it.'}
+                </span>
+                <input ref={photoInput} type="file" accept={IMAGE_ACCEPT} onChange={pickPhoto} style={{ display: 'none' }} />
+              </div>
+
+              <button
+                type="submit"
+                className="btn btn-primary"
+                style={{ width: '100%', justifyContent: 'center', opacity: isAiSearching ? 0.7 : 1, cursor: isAiSearching ? 'not-allowed' : 'pointer' }}
+                disabled={isAiSearching}
+              >
+                {isAiSearching ? (
+                  <>
+                    <span className="spin" style={{ width: 16, height: 16, border: '2px solid rgba(0,0,0,0.25)', borderLeftColor: '#000', borderRadius: '50%', display: 'inline-block' }} />
+                    Finding vendors…
+                  </>
+                ) : (
+                  <><Sparkles size={18} /> {aiImage ? 'Find Vendors for This Item' : 'Match Me with Artisans'}</>
+                )}
               </button>
             </form>
           )}
@@ -168,10 +259,19 @@ export function SearchView({ search, boards, user, onRequireAuth, onNavigate }) 
             <AiMatchmakerLoader aiLoaderStep={aiLoaderStep} />
           ) : (
             <div style={{ textAlign: 'center', padding: '40px' }}>
-              <div className="spin" style={{ border: '4px solid rgba(255,255,255,0.1)', borderLeftColor: '#14f195', borderRadius: '50%', width: '40px', height: '40px', margin: '0 auto 16px' }}></div>
+              <div className="spin" style={{ border: '4px solid var(--surface-3)', borderLeftColor: 'var(--color-primary)', borderRadius: '50%', width: '40px', height: '40px', margin: '0 auto 16px' }}></div>
               <p style={{ color: 'var(--color-text-secondary)' }}>Searching database...</p>
             </div>
           )
+        ) : searchError ? (
+          <div
+            role="alert"
+            className="glass-card"
+            style={{ maxWidth: '560px', margin: '20px auto', textAlign: 'center', padding: '28px', background: 'var(--tone-danger-bg)', border: '1px solid var(--tone-danger-border)', color: 'var(--tone-danger-text)' }}
+          >
+            <strong style={{ display: 'block', marginBottom: '6px' }}>Search failed</strong>
+            <span style={{ fontSize: '14px' }}>{searchError}</span>
+          </div>
         ) : hasSearched ? (
           <>
             <div className="results-header">
@@ -181,28 +281,47 @@ export function SearchView({ search, boards, user, onRequireAuth, onNavigate }) 
                   {totalResults} found
                 </span>
               </h3>
+              {personalized && totalResults > 0 && (
+                <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '6px' }}>
+                  ★ Ranked using your saved interests and location. You can change these from onboarding.
+                </p>
+              )}
             </div>
 
             {searchMode === 'ai' && (aiSummary || extractChips.length > 0) && (
-              <div className="glass-card" style={{ marginBottom: '18px', padding: '16px 18px' }}>
-                {aiSummary && (
-                  <p style={{ fontSize: '14px', color: 'var(--color-text-secondary)', marginBottom: extractChips.length ? '12px' : 0 }}>
-                    {aiSummary}
-                  </p>
+              <div className="glass-card" style={{ marginBottom: '18px', padding: '16px 18px', display: 'flex', gap: '16px', alignItems: 'flex-start' }}>
+                {aiSearchedImage && (
+                  <img
+                    src={aiSearchedImage}
+                    alt="Your uploaded item"
+                    style={{ width: '88px', height: '88px', objectFit: 'cover', borderRadius: '8px', flexShrink: 0, border: '1px solid var(--border-color)' }}
+                  />
                 )}
-                {extractChips.length > 0 && (
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
-                    {extractChips.map(chip => (
-                      <span
-                        key={`${chip.label}-${chip.value}`}
-                        className="badge badge-purple"
-                        style={{ fontSize: '11px', padding: '6px 10px', fontWeight: 500 }}
-                      >
-                        <strong style={{ opacity: 0.85 }}>{chip.label}:</strong> {chip.value}
-                      </span>
-                    ))}
-                  </div>
-                )}
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  {aiExtracted?.visualDescription && (
+                    <p style={{ fontSize: '13px', marginBottom: '8px' }}>
+                      <strong>Detected item:</strong> {aiExtracted.visualDescription}
+                    </p>
+                  )}
+                  {aiSummary && (
+                    <p style={{ fontSize: '14px', color: 'var(--color-text-secondary)', marginBottom: extractChips.length ? '12px' : 0 }}>
+                      {aiSummary}
+                    </p>
+                  )}
+                  {extractChips.length > 0 && (
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                      {extractChips.map(chip => (
+                        <span
+                          key={`${chip.label}-${chip.value}`}
+                          className="badge badge-purple"
+                          style={{ fontSize: '11px', padding: '6px 10px', fontWeight: 500 }}
+                        >
+                          <strong style={{ opacity: 0.85 }}>{chip.label}:</strong> {chip.value}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
             )}
 
@@ -241,6 +360,26 @@ export function SearchView({ search, boards, user, onRequireAuth, onNavigate }) 
                   />
                 )}
               </>
+            )}
+
+            {searchMode === 'ai' && Array.isArray(aiSuggestions) && aiSuggestions.length > 0 && (
+              <div className="glass-card" style={{ marginTop: '18px', padding: '16px 18px' }}>
+                <h4 style={{ margin: '0 0 10px', fontSize: '14px' }}>Related searches</h4>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                  {aiSuggestions.map((suggestion) => (
+                    <button
+                      key={suggestion}
+                      type="button"
+                      className="btn btn-secondary"
+                      style={{ padding: '8px 12px', fontSize: '12px', textAlign: 'left', maxWidth: '100%' }}
+                      onClick={() => handleAiSuggestion(suggestion)}
+                      disabled={searching}
+                    >
+                      {suggestion}
+                    </button>
+                  ))}
+                </div>
+              </div>
             )}
           </>
         ) : (

@@ -5,6 +5,7 @@ const User = require('../models/User');
 const Artisan = require('../models/Artisan');
 const { sanitizeArtisans } = require('../utils/sanitizeArtisan');
 const { PUBLIC_STATUS_FILTER } = require('../constants/artisan');
+const { getClientPreferences, scorePreferences } = require('../utils/clientPreferences');
 
 const { JWT_SECRET, isSessionValid } = require('../middleware/auth');
 
@@ -48,13 +49,28 @@ router.get('/', async (req, res) => {
 
     const totalResults = await Artisan.countDocuments(query);
     let results = [];
+    const basicLimit = userPlan === 'basic' ? 10 : null;
 
     // Newest updates first so recently approved demo/test listings are visible.
-    const findQuery = Artisan.find(query).sort({ updatedAt: -1, _id: -1 });
+    const findQuery = Artisan.find(query)
+      .select('-embedding -catalogue.embedding -approvedSnapshot')
+      .sort({ updatedAt: -1, _id: -1 });
 
-    if (userPlan === 'basic') {
+    const prefs = getClientPreferences(user);
+    if (prefs) {
+      // Rank the whole match set by onboarding preferences before applying the plan cap.
+      const candidates = await findQuery.lean();
+      results = candidates
+        .map((artisan, index) => {
+          const { interestHits, locationHit, reasons } = scorePreferences(artisan, prefs, { explicitLocation: Boolean(location?.trim()) });
+          return { artisan: { ...artisan, preferenceReasons: reasons }, score: (locationHit ? 3 : 0) + (interestHits.length ? 2 : 0), index };
+        })
+        .sort((left, right) => right.score - left.score || left.index - right.index)
+        .map(entry => entry.artisan);
+      if (basicLimit) results = results.slice(0, basicLimit);
+    } else if (basicLimit) {
       // Basic / Guest view: limit to 10 results maximum
-      results = await findQuery.limit(10);
+      results = await findQuery.limit(basicLimit);
     } else {
       // Pro / Enterprise: unlimited results
       results = await findQuery;
@@ -69,6 +85,7 @@ router.get('/', async (req, res) => {
       paywallActive,
       isLoggedIn,
       userPlan,
+      personalized: Boolean(prefs),
       contactLocked: !isLoggedIn
     });
   } catch (err) {

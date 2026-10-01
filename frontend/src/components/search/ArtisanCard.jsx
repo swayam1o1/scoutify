@@ -1,5 +1,6 @@
 import { Globe, Lock, Mail, MapPin, Phone, User as UserIcon } from 'lucide-react';
 import { Instagram } from '../../icons/Instagram';
+import { assetUrl } from '../../api/client';
 
 export function ArtisanCard({
   artisan,
@@ -15,6 +16,8 @@ export function ArtisanCard({
   onRequireAuth
 }) {
   const contactUnlocked = Boolean(user) && !artisan.contactLocked;
+  const hasMatchedItems = Array.isArray(artisan.matchedItems) && artisan.matchedItems.length > 0;
+  const previewItems = (hasMatchedItems ? artisan.matchedItems : artisan.catalogue || []).slice(0, 3);
 
   return (
     <div className="glass-card animate-fade-in" style={{ animationDelay: `${index * 0.05}s` }}>
@@ -32,6 +35,42 @@ export function ArtisanCard({
           <span key={i} className="spec-tag">{spec}</span>
         ))}
       </div>
+
+      {artisan.preferenceReasons?.length > 0 && (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', margin: '8px 0 2px' }}>
+          {artisan.preferenceReasons.map(reason => (
+            <span
+              key={reason}
+              style={{ fontSize: '11px', padding: '3px 8px', borderRadius: '999px', background: 'rgba(20,241,149,0.1)', border: '1px solid rgba(20,241,149,0.3)', color: '#a7f3d0' }}
+            >
+              ★ {reason}
+            </span>
+          ))}
+        </div>
+      )}
+
+      {previewItems.length > 0 && (
+        <div style={{ margin: '10px 0 4px' }}>
+          <span style={{ fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.5px', color: 'var(--color-text-secondary)' }}>
+            {hasMatchedItems ? 'Matching catalogue products' : 'From their catalogue'}
+          </span>
+          <div style={{ display: 'flex', gap: '8px', marginTop: '6px' }}>
+            {previewItems.map(item => (
+              <div key={item._id} title={item.title} style={{ width: '33%', maxWidth: '96px' }}>
+                <img
+                  src={assetUrl(item.imageUrl)}
+                  alt={item.title}
+                  loading="lazy"
+                  style={{ width: '100%', aspectRatio: '1', objectFit: 'cover', borderRadius: '6px', border: '1px solid var(--border-color)', display: 'block' }}
+                />
+                <span style={{ fontSize: '10px', color: 'var(--color-text-secondary)', display: 'block', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', marginTop: '3px' }}>
+                  {item.similarity ? `${item.similarity}% · ` : ''}{item.title}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="artisan-info">
         <div className="artisan-info-item">
@@ -151,7 +190,7 @@ export function ArtisanCard({
                   placeholder="Create new board..."
                   value={quickNewBoardName}
                   onChange={(e) => setQuickNewBoardName(e.target.value)}
-                  style={{ padding: '6px 10px', fontSize: '12px', height: 'auto', marginBottom: '6px', background: 'rgba(255,255,255,0.02)' }}
+                  style={{ padding: '6px 10px', fontSize: '12px', height: 'auto', marginBottom: '6px', background: 'var(--surface-1)' }}
                 />
                 <button
                   className="btn btn-primary"
@@ -167,8 +206,8 @@ export function ArtisanCard({
       )}
 
       {artisan.aiReasoning && (
-        <div style={{ background: 'rgba(153, 69, 255, 0.06)', border: '1px solid rgba(153, 69, 255, 0.15)', padding: '12px', borderRadius: '8px', marginTop: '10px', fontSize: '13px', textAlign: 'left' }}>
-          <strong style={{ color: '#c084fc', display: 'block', marginBottom: '4px', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+        <div style={{ background: 'var(--tone-purple-bg)', border: '1px solid var(--tone-purple-border)', padding: '12px', borderRadius: '8px', marginTop: '10px', fontSize: '13px', textAlign: 'left' }}>
+          <strong style={{ color: 'var(--tone-purple-strong)', display: 'block', marginBottom: '4px', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
             AI Match Reasoning
           </strong>
           {artisan.aiReasoning}

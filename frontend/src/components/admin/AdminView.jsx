@@ -1,4 +1,6 @@
-import { RefreshCw } from 'lucide-react';
+import { Eye, RefreshCw } from 'lucide-react';
+import { VendorDetailModal } from './VendorDetailModal.jsx';
+import { isLiveStatus } from './vendorStatus';
 
 const STATUS_FILTERS = ['pending', 'approved', 'rejected', 'verified', 'all'];
 
@@ -36,9 +38,9 @@ function Feedback({ message, error }) {
 
   return (
     <div style={{
-      background: error ? 'rgba(239,68,68,0.15)' : 'rgba(20,241,149,0.15)',
+      background: error ? 'var(--tone-danger-bg)' : 'var(--tone-success-bg)',
       border: `1px solid ${error ? 'var(--color-danger)' : 'var(--color-primary)'}`,
-      color: error ? '#fca5a5' : '#a7f3d0',
+      color: error ? 'var(--tone-danger-text)' : 'var(--tone-success-text)',
       padding: '10px 12px',
       borderRadius: '8px',
       fontSize: '13px',
@@ -108,7 +110,7 @@ function StatsGrid({ stats }) {
 }
 
 function VendorModerationPanel({ admin }) {
-  const { vendors, statusFilter, setStatusFilter, setVendorStatus, deleteVendor, loading } = admin;
+  const { vendors, statusFilter, setStatusFilter, setVendorStatus, deleteVendor, openVendorDetail, loading } = admin;
 
   return (
     <div className="glass-card">
@@ -119,7 +121,7 @@ function VendorModerationPanel({ admin }) {
             <button
               key={status}
               className={`btn ${statusFilter === status ? 'btn-primary' : 'btn-secondary'}`}
-              style={{ padding: '6px 12px', fontSize: '12px', textTransform: 'capitalize', color: statusFilter === status ? '#000' : undefined }}
+              style={{ padding: '6px 12px', fontSize: '12px', textTransform: 'capitalize', color: statusFilter === status ? 'var(--color-on-primary)' : undefined }}
               onClick={() => setStatusFilter(status)}
             >
               {status}
@@ -135,7 +137,7 @@ function VendorModerationPanel({ admin }) {
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', maxHeight: '460px', overflowY: 'auto' }}>
           {vendors.map(vendor => (
-            <div key={vendor._id} className="glass-card" style={{ padding: '14px', border: '1px solid rgba(255,255,255,0.05)' }}>
+            <div key={vendor._id} className="glass-card" style={{ padding: '14px', border: '1px solid var(--border-subtle)' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '10px', marginBottom: '8px' }}>
                 <div>
                   <strong style={{ fontSize: '15px' }}>{vendor.companyName}</strong>
@@ -150,33 +152,58 @@ function VendorModerationPanel({ admin }) {
                     </div>
                   )}
                 </div>
-                <span className={`badge ${['approved', 'verified'].includes(vendor.contactStatus) ? '' : 'badge-purple'}`} style={{ fontSize: '10px', whiteSpace: 'nowrap' }}>
-                  {vendor.contactStatus?.toUpperCase()}
-                </span>
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '6px' }}>
+                  <span className={`badge ${isLiveStatus(vendor.contactStatus) ? '' : 'badge-purple'}`} style={{ fontSize: '10px', whiteSpace: 'nowrap' }}>
+                    {vendor.contactStatus?.toUpperCase()}
+                  </span>
+                  {vendor.isFirstSubmission ? (
+                    <span style={{ fontSize: '11px', color: 'var(--tone-purple-text)', whiteSpace: 'nowrap' }}>New listing</span>
+                  ) : (vendor.changeCount > 0 || vendor.newCatalogueCount > 0) && (
+                    <span style={{ fontSize: '11px', color: 'var(--tone-warning-text)', whiteSpace: 'nowrap' }}>
+                      {[
+                        vendor.changeCount > 0 && `${vendor.changeCount} change${vendor.changeCount === 1 ? '' : 's'}`,
+                        vendor.newCatalogueCount > 0 && `${vendor.newCatalogueCount} new product${vendor.newCatalogueCount === 1 ? '' : 's'}`
+                      ].filter(Boolean).join(' · ')}
+                    </span>
+                  )}
+                </div>
               </div>
 
               <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                 <button
-                  className="btn btn-primary"
-                  style={{ padding: '6px 12px', fontSize: '12px', color: '#000' }}
-                  onClick={() => setVendorStatus(vendor._id, 'approved')}
+                  className="btn btn-secondary"
+                  style={{ padding: '6px 12px', fontSize: '12px', gap: '6px' }}
+                  onClick={() => openVendorDetail(vendor._id)}
                 >
-                  Approve
+                  <Eye size={14} /> View Details
                 </button>
-                <button
-                  className="btn btn-outline"
-                  style={{ padding: '6px 12px', fontSize: '12px' }}
-                  onClick={() => setVendorStatus(vendor._id, 'rejected')}
-                >
-                  Reject
-                </button>
-                <button
-                  className="btn btn-outline"
-                  style={{ padding: '6px 12px', fontSize: '12px' }}
-                  onClick={() => setVendorStatus(vendor._id, 'pending')}
-                >
-                  Mark Pending
-                </button>
+                {!isLiveStatus(vendor.contactStatus) && (
+                  <button
+                    className="btn btn-primary"
+                    style={{ padding: '6px 12px', fontSize: '12px' }}
+                    onClick={() => setVendorStatus(vendor._id, 'approved')}
+                  >
+                    Approve
+                  </button>
+                )}
+                {vendor.contactStatus !== 'rejected' && (
+                  <button
+                    className="btn btn-outline"
+                    style={{ padding: '6px 12px', fontSize: '12px' }}
+                    onClick={() => setVendorStatus(vendor._id, 'rejected')}
+                  >
+                    Reject
+                  </button>
+                )}
+                {vendor.contactStatus !== 'pending' && (
+                  <button
+                    className="btn btn-outline"
+                    style={{ padding: '6px 12px', fontSize: '12px' }}
+                    onClick={() => setVendorStatus(vendor._id, 'pending')}
+                  >
+                    Mark Pending
+                  </button>
+                )}
                 <button
                   className="btn btn-outline"
                   style={{ padding: '6px 12px', fontSize: '12px', borderColor: 'var(--color-danger)', color: 'var(--color-danger)' }}
@@ -268,7 +295,7 @@ function ConsumerPanel({ admin }) {
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', maxHeight: '460px', overflowY: 'auto' }}>
           {consumers.map(consumer => (
-            <div key={consumer._id} className="glass-card" style={{ padding: '14px', border: '1px solid rgba(255,255,255,0.05)' }}>
+            <div key={consumer._id} className="glass-card" style={{ padding: '14px', border: '1px solid var(--border-subtle)' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '10px', marginBottom: '8px' }}>
                 <div>
                   <strong style={{ fontSize: '15px' }}>{consumer.name}</strong>
@@ -365,6 +392,8 @@ export function AdminView({ admin }) {
           <AuditLogPanel auditLogs={admin.auditLogs} />
         </div>
       </div>
+
+      <VendorDetailModal admin={admin} />
     </div>
   );
 }
