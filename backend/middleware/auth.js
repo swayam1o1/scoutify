@@ -65,6 +65,25 @@ async function requireAuth(req, res, next) {
   }
 }
 
+// Sets req.user when a valid Bearer token is present; guests continue with req.user = null.
+async function optionalAuth(req, res, next) {
+  req.user = null;
+  const authHeader = req.headers.authorization;
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    try {
+      const decoded = jwt.verify(authHeader.split(' ')[1], JWT_SECRET);
+      const user = await User.findById(decoded.id);
+      if (user && isSessionValid(decoded, user) && !user.isDeleted && !user.isSuspended) {
+        req.user = user;
+        req.userId = user._id;
+      }
+    } catch (err) {
+      // Expired or invalid token: treat as guest.
+    }
+  }
+  next();
+}
+
 function requireRole(...roles) {
   return (req, res, next) => {
     if (!req.user) return res.status(401).json({ message: 'No token provided.' });
@@ -97,6 +116,7 @@ module.exports = {
   tokenVersionOf,
   isSessionValid,
   requireAuth,
+  optionalAuth,
   requireRole,
   requireAdmin
 };

@@ -2,7 +2,7 @@ const AuditLog = require('../models/AuditLog');
 const Artisan = require('../models/Artisan');
 const Notification = require('../models/Notification');
 const SearchLog = require('../models/SearchLog');
-const { deleteImage } = require('./storage');
+const { deleteImage } = require('./storageService');
 const { bumpTokenVersion } = require('../middleware/auth');
 
 /**

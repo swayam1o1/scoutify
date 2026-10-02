@@ -1,6 +1,6 @@
 const Artisan = require('../models/Artisan');
-const { buildEmbeddingText } = require('./artisanFields');
-const { embedText } = require('./gemini');
+const { buildEmbeddingText } = require('../utils/artisanFields');
+const { embedText } = require('./geminiService');
 
 // Recomputes a listing's profile embedding so it can be matched by text and photo
 // search even without catalogue photos. Never throws: a failed embed must not break a save.

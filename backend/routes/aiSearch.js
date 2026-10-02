@@ -15,10 +15,10 @@ const {
   parseSuggestionsJson,
   serviceOrConditions
 } = require('../utils/searchIntent');
-const { getGenerativeModel, generateWithRetry, embedText, cosineSimilarity } = require('../utils/gemini');
+const { getGenerativeModel, generateWithRetry, embedText, cosineSimilarity } = require('../services/geminiService');
 const { parseImageDataUrl, ImageUploadError } = require('../utils/imageUpload');
 const { asString, buildClientImagePrompt, parseClientImageJson, imagePart } = require('../utils/visualSearch');
-const { recordSearchAndNotify } = require('../utils/searchNotifications');
+const { recordSearchAndNotify } = require('../services/searchNotificationService');
 const { getClientPreferences, scorePreferences } = require('../utils/clientPreferences');
 
 const { JWT_SECRET, isSessionValid } = require('../middleware/auth');
