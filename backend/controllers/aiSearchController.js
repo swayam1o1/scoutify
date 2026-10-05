@@ -7,6 +7,7 @@ const textSearch = handle(async (req, res) => {
   const { query } = req.body;
   aiSearchService.validateTextQuery(query);
   const user = await aiSearchService.authenticateClient(req.headers.authorization);
+  req.user = user;
 
   const { payload, search } = await aiSearchService.textSearch(query, user);
   res.json(payload);
@@ -15,6 +16,7 @@ const textSearch = handle(async (req, res) => {
 
 const imageSearch = handle(async (req, res) => {
   const user = await aiSearchService.authenticateClient(req.headers.authorization);
+  req.user = user;
 
   const { payload, search } = await aiSearchService.imageSearch({ image: req.body.image, note: req.body.note }, user);
   res.json(payload);
