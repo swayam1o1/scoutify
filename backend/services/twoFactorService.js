@@ -1,7 +1,7 @@
 const jwt = require('jsonwebtoken');
 const speakeasy = require('speakeasy');
 const QRCode = require('qrcode');
-const User = require('../models/User');
+const { findAccountById } = require('./accountLookupService');
 const HttpError = require('../utils/httpError');
 const { isSessionValid, JWT_SECRET } = require('../middleware/auth');
 const { verifyTotp } = require('./reauthService');
@@ -19,7 +19,7 @@ async function getAuthedUser(authHeader) {
   try {
     const token = authHeader.split(' ')[1];
     decoded = jwt.verify(token, JWT_SECRET);
-    user = await User.findById(decoded.id);
+    user = await findAccountById(decoded.id, decoded.role);
   } catch (err) {
     throw new HttpError(401, 'Invalid token.');
   }

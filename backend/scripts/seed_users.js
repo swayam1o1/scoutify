@@ -3,7 +3,8 @@ const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 const User = require('../models/User');
 const Artisan = require('../models/Artisan');
-const { buildSearchText } = require('../utils/artisanFields');
+const { newArtisanAccount } = require('../services/artisanService');
+const { ARTISAN_ACCOUNT_SELECT } = require('../constants/artisan');
 
 const MONGO_URI = process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/scoutify';
 const users = [
@@ -30,53 +31,59 @@ const users = [
   { name: 'Scoutify Admin', email: 'admin@example.com', password: 'AdminPass123!', role: 'admin', subscriptionPlan: 'basic' }
 ];
 
+// Vendors live only in the artisans collection; the listing is also the login account.
+async function seedArtisan(entry, passwordHash) {
+  const { artisanProfile: listing } = entry;
+  const account = {
+    name: entry.name,
+    passwordHash,
+    subscriptionPlan: entry.subscriptionPlan,
+    isVerified: true,
+    isSuspended: false,
+    isDeleted: false,
+    deletedAt: undefined,
+    tokenVersion: 0
+  };
+
+  const existing = await Artisan.findOne({ email: entry.email, hasAccount: true }).select(ARTISAN_ACCOUNT_SELECT);
+  if (existing) {
+    existing.set(account);
+    await existing.save();
+  } else {
+    await newArtisanAccount({ ...account, listing, email: entry.email, phoneNumber: listing.phoneNumber }).save();
+  }
+  console.log(`  → Artisan account (${existing ? 'updated' : 'created, listing pending'}): ${listing.companyName}`);
+}
+
 async function run() {
   await mongoose.connect(MONGO_URI);
   for (const entry of users) {
     const passwordHash = await bcrypt.hash(entry.password, 10);
-    const $set = {
-      name: entry.name,
-      passwordHash,
-      role: entry.role,
-      subscriptionPlan: entry.subscriptionPlan,
-      isVerified: true,
-      isSuspended: false,
-      isDeleted: false,
-      tokenVersion: 0,
-      onboardingCompleted: true
-    };
-    if (entry.artisanProfile) {
-      $set.artisanProfile = entry.artisanProfile;
+    console.log(`${entry.email} / ${entry.password} (${entry.role})`);
+
+    if (entry.role === 'artisan') {
+      await seedArtisan(entry, passwordHash);
+      continue;
     }
+
     await User.updateOne(
       { email: entry.email },
       {
-        $set,
+        $set: {
+          name: entry.name,
+          passwordHash,
+          role: entry.role,
+          subscriptionPlan: entry.subscriptionPlan,
+          isVerified: true,
+          isSuspended: false,
+          isDeleted: false,
+          tokenVersion: 0,
+          onboardingCompleted: true
+        },
         $unset: { deletedAt: '' }
       },
       { upsert: true }
     );
-    console.log(`${entry.email} / ${entry.password} (${entry.role})`);
-
-    // Public search uses the Artisan collection — create a pending listing for demo vendor.
-    if (entry.role === 'artisan' && entry.artisanProfile) {
-      const user = await User.findOne({ email: entry.email });
-      const profile = entry.artisanProfile;
-      await Artisan.findOneAndUpdate(
-        { userId: user._id },
-        {
-          $set: {
-            ...profile,
-            userId: user._id,
-            contactStatus: 'pending',
-            searchText: buildSearchText(profile),
-            description: profile.description || ''
-          }
-        },
-        { upsert: true, new: true }
-      );
-      console.log(`  → Artisan listing pending: ${profile.companyName}`);
-    }
   }
 }
 

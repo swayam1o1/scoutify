@@ -3,7 +3,8 @@ const mongoose = require('mongoose');
 const RETENTION_DAYS = Number(process.env.NOTIFICATION_RETENTION_DAYS) || 90;
 
 const NotificationSchema = new mongoose.Schema({
-  userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  // Recipient account id: a User (client/admin) or an Artisan (vendor account).
+  userId: { type: mongoose.Schema.Types.ObjectId, required: true },
   type: { type: String, enum: ['search_match'], required: true },
   title: { type: String, required: true },
   message: { type: String, required: true },

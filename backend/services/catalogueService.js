@@ -29,13 +29,18 @@ async function describeCatalogueImage(image, item) {
   }
 }
 
-async function listCatalogue(userId) {
-  const listing = await Artisan.findOne({ userId }).select('catalogue');
+// A vendor account is its own listing, so the account id is the listing id.
+function findOwnListing(artisanId) {
+  return Artisan.findOne({ _id: artisanId, hasAccount: true }).select('catalogue');
+}
+
+async function listCatalogue(artisanId) {
+  const listing = await findOwnListing(artisanId);
   return { catalogue: sanitizeCatalogue(listing?.catalogue), maxItems: MAX_CATALOGUE_ITEMS };
 }
 
-async function addCatalogueItem(userId, body) {
-  const listing = await Artisan.findOne({ userId }).select('catalogue');
+async function addCatalogueItem(artisanId, body) {
+  const listing = await findOwnListing(artisanId);
   if (!listing) {
     throw new HttpError(400, 'Save your listing details first, then add catalogue products.');
   }
@@ -87,8 +92,8 @@ async function addCatalogueItem(userId, body) {
   };
 }
 
-async function removeCatalogueItem(userId, itemId) {
-  const listing = await Artisan.findOne({ userId }).select('catalogue');
+async function removeCatalogueItem(artisanId, itemId) {
+  const listing = await findOwnListing(artisanId);
   const item = listing?.catalogue.id(itemId);
   if (!item) throw new HttpError(404, 'Catalogue product not found.');
 

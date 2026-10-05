@@ -11,7 +11,8 @@ const UserSchema = new mongoose.Schema({
   passwordHash: { type: String },
   // Bumped on password change/reset so older JWTs stop working (SRS 3.3).
   tokenVersion: { type: Number, default: 0 },
-  role: { type: String, enum: ['artisan', 'client', 'admin'], required: true },
+  // Vendors live in the artisans collection; this collection holds clients and admins only.
+  role: { type: String, enum: ['client', 'admin'], required: true },
   googleId: { type: String },
   isVerified: { type: Boolean, default: false },
   otp: { type: String },
@@ -52,21 +53,6 @@ const UserSchema = new mongoose.Schema({
     geoLat: { type: Number },
     geoLng: { type: Number },
     geoAllowed: { type: Boolean, default: false }
-  },
-  artisanProfile: {
-    companyName: { type: String },
-    phoneNumber: { type: String },
-    email: { type: String },
-    instagram: { type: String },
-    city: { type: String },
-    personOfContact: { type: String },
-    website: { type: String },
-    serviceArea: { type: String },
-    description: { type: String },
-    specialization: [{ type: String }],
-    products: [{ type: String }],
-    customTags: [{ type: String }],
-    portfolio: [{ type: String }]
   },
   boards: [{
     name: { type: String, required: true },

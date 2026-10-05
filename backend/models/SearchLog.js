@@ -4,7 +4,8 @@ const RETENTION_DAYS = Number(process.env.SEARCH_LOG_RETENTION_DAYS) || 180;
 
 // AI search prompts and extracted parameters (SRS §5). Client photos are never stored.
 const SearchLogSchema = new mongoose.Schema({
-  userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', index: true },
+  // Searcher may be a User (client/admin) or an Artisan vendor account.
+  userId: { type: mongoose.Schema.Types.ObjectId, index: true },
   searchType: { type: String, enum: ['ai_text', 'ai_image'], required: true },
   query: { type: String, default: '' },
   extracted: { type: mongoose.Schema.Types.Mixed },

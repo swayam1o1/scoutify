@@ -1,5 +1,5 @@
 const jwt = require('jsonwebtoken');
-const User = require('../models/User');
+const { findAccountById } = require('./accountLookupService');
 const Artisan = require('../models/Artisan');
 const HttpError = require('../utils/httpError');
 const { sanitizeArtisanForUser } = require('../utils/sanitizeArtisan');
@@ -125,7 +125,7 @@ async function authenticateClient(authHeader) {
   try {
     const token = authHeader.split(' ')[1];
     decoded = jwt.verify(token, JWT_SECRET);
-    user = await User.findById(decoded.id);
+    user = await findAccountById(decoded.id, decoded.role);
   } catch (err) {
     throw new HttpError(401, 'Invalid token.');
   }

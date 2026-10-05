@@ -1,12 +1,11 @@
 const bcrypt = require('bcryptjs');
-const User = require('../models/User');
-const Artisan = require('../models/Artisan');
 const HttpError = require('../utils/httpError');
 const { signToken, bumpTokenVersion } = require('../middleware/auth');
 const { sendEmailOtp, sendPhoneOtp, sendPasswordChangedNotice, sendPlainEmail, normalizePhone } = require('./otpDeliveryService');
 const { assertReauth, clearReauthChallenge, companyNameChanged } = require('./reauthService');
 const { deleteUserAccount } = require('./accountDeletionService');
 const { FIRM_TYPES, generateOTP, publicUser } = require('./authService');
+const { isEmailTaken, isPhoneTaken } = require('./accountLookupService');
 
 // assertReauth failures were answered with the failure object itself, so the
 // body keeps its `status` field alongside message + code.
@@ -25,11 +24,9 @@ async function getCurrentUser(user) {
   };
 
   // Artisans need their public listing state to know if they are searchable yet.
+  // A vendor account is its own listing document.
   if (user.role === 'artisan') {
-    const listing = await Artisan.findOne({ userId: user._id }).select('contactStatus updatedAt');
-    payload.artisanListing = listing
-      ? { id: listing._id, contactStatus: listing.contactStatus, updatedAt: listing.updatedAt }
-      : null;
+    payload.artisanListing = { id: user._id, contactStatus: user.contactStatus, updatedAt: user.updatedAt };
   }
 
   return { user: payload };
@@ -159,8 +156,9 @@ async function saveOnboarding(user, body) {
   };
 }
 
-// 9. UPDATE OWN PROFILE (name + role specific profile)
-async function updateProfile(user, { name, clientProfile, artisanProfile, currentPassword, totpCode, emailOtp }) {
+// 9. UPDATE OWN PROFILE (name + client profile). Vendor listing edits go through
+// /artisan/profile so they re-enter admin moderation.
+async function updateProfile(user, { name, clientProfile, currentPassword, totpCode, emailOtp }) {
   if (name !== undefined) {
     if (!String(name).trim()) {
       throw new HttpError(400, 'Name cannot be empty.');
@@ -188,18 +186,6 @@ async function updateProfile(user, { name, clientProfile, artisanProfile, curren
       companyName: nextCompany || undefined,
       phoneNumber: clientProfile.phoneNumber ?? user.clientProfile?.phoneNumber
     };
-  }
-
-  if (user.role === 'artisan' && artisanProfile) {
-    const existing = user.artisanProfile?.toObject?.() || user.artisanProfile || {};
-    if (
-      artisanProfile.companyName !== undefined &&
-      companyNameChanged(existing.companyName, artisanProfile.companyName)
-    ) {
-      await requireReauth(user, { currentPassword, totpCode, emailOtp });
-      clearReauthChallenge(user);
-    }
-    user.artisanProfile = { ...existing, ...artisanProfile };
   }
 
   await user.save();
@@ -294,8 +280,7 @@ async function startEmailChange(user, { newEmail, currentPassword, totpCode, ema
 
   await requireReauth(user, { currentPassword, totpCode, emailOtp });
 
-  const taken = await User.findOne({ email: normalized, isDeleted: { $ne: true } });
-  if (taken) {
+  if (await isEmailTaken(normalized)) {
     throw new HttpError(400, 'Email already registered.');
   }
 
@@ -330,12 +315,7 @@ async function confirmEmailChange(user, rawOtp) {
     throw new HttpError(400, 'Invalid or expired email confirmation code.');
   }
 
-  const taken = await User.findOne({
-    email: user.pendingEmail,
-    _id: { $ne: user._id },
-    isDeleted: { $ne: true }
-  });
-  if (taken) {
+  if (await isEmailTaken(user.pendingEmail, { excludeId: user._id })) {
     throw new HttpError(400, 'Email already registered.');
   }
 
@@ -343,9 +323,6 @@ async function confirmEmailChange(user, rawOtp) {
   user.pendingEmail = undefined;
   user.pendingEmailOtp = undefined;
   user.pendingEmailExpires = undefined;
-  if (user.role === 'artisan' && user.artisanProfile) {
-    user.artisanProfile.email = user.email;
-  }
   await user.save();
 
   return { message: 'Email updated successfully.', user: publicUser(user) };
@@ -364,12 +341,7 @@ async function startPhoneChange(user, { newPhone, currentPassword, totpCode, ema
 
   await requireReauth(user, { currentPassword, totpCode, emailOtp });
 
-  const taken = await User.findOne({
-    phoneNumber: phone,
-    _id: { $ne: user._id },
-    isDeleted: { $ne: true }
-  });
-  if (taken) {
+  if (await isPhoneTaken(phone, { excludeId: user._id })) {
     throw new HttpError(400, 'Phone number already registered to another account.');
   }
 
@@ -404,12 +376,7 @@ async function confirmPhoneChange(user, rawOtp) {
     throw new HttpError(400, 'Invalid or expired phone confirmation code.');
   }
 
-  const taken = await User.findOne({
-    phoneNumber: user.pendingPhone,
-    _id: { $ne: user._id },
-    isDeleted: { $ne: true }
-  });
-  if (taken) {
+  if (await isPhoneTaken(user.pendingPhone, { excludeId: user._id })) {
     throw new HttpError(400, 'Phone number already registered to another account.');
   }
 
@@ -421,12 +388,6 @@ async function confirmPhoneChange(user, rawOtp) {
   if (user.role === 'client') {
     user.clientProfile = {
       ...(user.clientProfile?.toObject?.() || user.clientProfile || {}),
-      phoneNumber: user.phoneNumber
-    };
-  }
-  if (user.role === 'artisan') {
-    user.artisanProfile = {
-      ...(user.artisanProfile?.toObject?.() || user.artisanProfile || {}),
       phoneNumber: user.phoneNumber
     };
   }

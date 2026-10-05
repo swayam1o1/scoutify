@@ -4,6 +4,9 @@ const HttpError = require('../utils/httpError');
 const { signToken, bumpTokenVersion } = require('../middleware/auth');
 const { sendEmailOtp, sendPhoneOtp, sendPasswordChangedNotice, normalizePhone } = require('./otpDeliveryService');
 const { verifyTotp } = require('./reauthService');
+const { findAccountByEmail, isEmailTaken, isPhoneTaken } = require('./accountLookupService');
+const { artisanProfileOf, newArtisanAccount } = require('./artisanService');
+const { refreshListingEmbedding } = require('./listingEmbeddingService');
 
 const FIRM_TYPES = new Set([
   'architectural_firm',
@@ -26,7 +29,7 @@ function publicUser(user) {
     phoneVerified: !!user.phoneVerified,
     role: user.role,
     subscriptionPlan: user.subscriptionPlan,
-    twoFactorEnabled: user.twoFactorEnabled,
+    twoFactorEnabled: !!user.twoFactorEnabled,
     hasPassword: !!user.passwordHash,
     mustEnable2FA: user.role === 'admin' && !user.twoFactorEnabled,
     onboardingCompleted: user.role === 'client' ? !!user.onboardingCompleted : true,
@@ -34,10 +37,10 @@ function publicUser(user) {
     dateOfBirth: user.dateOfBirth || null,
     gender: user.gender || null,
     profilePictureUrl: user.profilePictureUrl || null,
-    isVerified: user.isVerified,
-    isSuspended: user.isSuspended,
+    isVerified: !!user.isVerified,
+    isSuspended: !!user.isSuspended,
     clientProfile: user.clientProfile,
-    artisanProfile: user.artisanProfile
+    artisanProfile: user.role === 'artisan' ? artisanProfileOf(user) : undefined
   };
 }
 
@@ -82,8 +85,7 @@ async function register({ name, email, password, role, clientProfile, artisanPro
       throw new HttpError(400, 'Company name is required for vendor registration.');
     }
 
-    const existingUser = await User.findOne({ email: normalizedEmail });
-    if (existingUser) {
+    if (await isEmailTaken(normalizedEmail, { includeDeleted: true })) {
       throw new HttpError(400, 'Email already registered.');
     }
 
@@ -91,8 +93,7 @@ async function register({ name, email, password, role, clientProfile, artisanPro
       if (phone.length < 10) {
         throw new HttpError(400, 'Enter a valid 10-digit phone number.');
       }
-      const phoneTaken = await User.findOne({ phoneNumber: phone, isDeleted: { $ne: true } });
-      if (phoneTaken) {
+      if (await isPhoneTaken(phone)) {
         throw new HttpError(400, 'Phone number already registered.');
       }
     }
@@ -101,7 +102,19 @@ async function register({ name, email, password, role, clientProfile, artisanPro
     const otp = generateOTP();
     const otpExpires = new Date(Date.now() + 10 * 60 * 1000);
 
-    const user = new User({
+    // Vendors are stored only in the artisans collection, as account + listing.
+    const user = role === 'artisan'
+      ? newArtisanAccount({
+        name: name.trim(),
+        listing: artisanProfile,
+        email: normalizedEmail,
+        phoneNumber: phone || undefined,
+        passwordHash,
+        otp,
+        otpExpires,
+        isVerified: false
+      })
+      : new User({
       name: name.trim(),
       email: normalizedEmail,
       phoneNumber: phone || undefined,
@@ -110,22 +123,18 @@ async function register({ name, email, password, role, clientProfile, artisanPro
       otp,
       otpExpires,
       isVerified: false,
-      // Consumers complete SRS §4 wizard after verify; vendors fill details at register.
-      onboardingCompleted: role !== 'client',
-      clientProfile: role === 'client' ? {
+      // Consumers complete SRS §4 wizard after verify.
+      onboardingCompleted: false,
+      clientProfile: {
         type: clientProfile?.type,
         companyName: clientProfile?.companyName?.trim() || undefined,
         plannedUse: clientProfile?.plannedUse,
         phoneNumber: phone || clientProfile?.phoneNumber
-      } : undefined,
-      artisanProfile: role === 'artisan' ? {
-        ...artisanProfile,
-        phoneNumber: phone || artisanProfile?.phoneNumber,
-        email: normalizedEmail
-      } : undefined
+      }
     });
 
     await user.save();
+    if (role === 'artisan') refreshListingEmbedding(user._id);
 
     const delivery = await sendEmailOtp({ to: normalizedEmail, otp, purpose: 'verification' });
 
@@ -152,7 +161,7 @@ async function register({ name, email, password, role, clientProfile, artisanPro
 
 // 2. VERIFY OTP
 async function verifyOtp({ email, otp }) {
-  const user = await User.findOne({ email });
+  const user = await findAccountByEmail(email);
   if (!user) {
     throw new HttpError(404, 'User not found.');
   }
@@ -180,18 +189,13 @@ async function sendPhoneVerificationOtp({ email: rawEmail, phoneNumber }) {
     throw new HttpError(400, 'Valid email and 10-digit phone number are required.');
   }
 
-  const user = await User.findOne({ email });
+  const user = await findAccountByEmail(email);
   if (!user || user.isDeleted) {
     throw new HttpError(404, 'User not found.');
   }
   assertNotBlocked(user);
 
-  const phoneTaken = await User.findOne({
-    phoneNumber: phone,
-    _id: { $ne: user._id },
-    isDeleted: { $ne: true }
-  });
-  if (phoneTaken) {
+  if (await isPhoneTaken(phone, { excludeId: user._id })) {
     throw new HttpError(400, 'Phone number already registered to another account.');
   }
 
@@ -202,9 +206,6 @@ async function sendPhoneVerificationOtp({ email: rawEmail, phoneNumber }) {
   user.phoneOtpExpires = new Date(Date.now() + 10 * 60 * 1000);
   if (user.role === 'client') {
     user.clientProfile = { ...(user.clientProfile?.toObject?.() || user.clientProfile || {}), phoneNumber: phone };
-  }
-  if (user.role === 'artisan') {
-    user.artisanProfile = { ...(user.artisanProfile?.toObject?.() || user.artisanProfile || {}), phoneNumber: phone };
   }
   await user.save();
 
@@ -227,7 +228,7 @@ async function verifyPhoneOtp({ email: rawEmail, otp }) {
     throw new HttpError(400, 'Email and OTP are required.');
   }
 
-  const user = await User.findOne({ email });
+  const user = await findAccountByEmail(email);
   if (!user) {
     throw new HttpError(404, 'User not found.');
   }
@@ -256,7 +257,7 @@ async function login({ email: rawEmail, password }) {
     throw new HttpError(400, 'Email and password are required.');
   }
 
-  const user = await User.findOne({ email });
+  const user = await findAccountByEmail(email);
   if (!user) {
     throw new HttpError(400, 'Invalid credentials.');
   }
@@ -295,7 +296,7 @@ async function login({ email: rawEmail, password }) {
 async function verifyLogin2fa({ email: rawEmail, code }) {
   const email = rawEmail?.trim().toLowerCase();
 
-  const user = await User.findOne({ email });
+  const user = await findAccountByEmail(email);
   if (!user || !user.twoFactorEnabled || !user.twoFactorSecret) {
     throw new HttpError(400, 'Authenticator login is not enabled for this account.');
   }
@@ -330,7 +331,7 @@ async function googleLogin({ name, email, googleId, role, credential }) {
   }
 
   const normalizedEmail = email.trim().toLowerCase();
-  let user = await User.findOne({ email: normalizedEmail });
+  let user = await findAccountByEmail(normalizedEmail);
 
   if (!user) {
     if (!role || !['client', 'artisan'].includes(role)) {
@@ -342,14 +343,26 @@ async function googleLogin({ name, email, googleId, role, credential }) {
       });
     }
 
-    user = new User({
-      name: name || normalizedEmail,
-      email: normalizedEmail,
-      googleId,
-      role,
-      isVerified: true,
-      onboardingCompleted: role !== 'client'
-    });
+    const displayName = name || normalizedEmail;
+    if (role === 'artisan') {
+      // Google sign-up has no company details yet; the vendor completes the listing next.
+      user = newArtisanAccount({
+        name: displayName,
+        listing: { companyName: displayName },
+        email: normalizedEmail,
+        googleId,
+        isVerified: true
+      });
+    } else {
+      user = new User({
+        name: displayName,
+        email: normalizedEmail,
+        googleId,
+        role,
+        isVerified: true,
+        onboardingCompleted: false
+      });
+    }
     await user.save();
   } else {
     assertNotBlocked(user);
@@ -388,28 +401,32 @@ async function demoLogin({ role }) {
     plan = 'basic';
   }
 
-  let user = await User.findOne({ email });
+  let user = await findAccountByEmail(email);
   if (!user) {
-    user = new User({
-      name,
-      email,
-      role: role === 'artisan' ? 'artisan' : 'client',
-      isVerified: true,
-      subscriptionPlan: plan,
-      twoFactorEnabled: false,
-      onboardingCompleted: true
-    });
-    if (role === 'artisan') {
-      user.artisanProfile = {
-        companyName: 'Apex Architectural Studio',
-        phoneNumber: '9876543210',
-        instagram: 'apex_studios',
-        city: 'Tirupati',
-        personOfContact: 'Sarah Smith',
-        specialization: ['Architectural Services', 'Interior Designing'],
-        portfolio: ['https://behance.net/apex-designs']
-      };
-    }
+    user = role === 'artisan'
+      ? newArtisanAccount({
+        name,
+        listing: {
+          companyName: 'Apex Architectural Studio',
+          instagram: 'apex_studios',
+          city: 'Tirupati',
+          personOfContact: 'Sarah Smith',
+          specialization: ['Architectural Services', 'Interior Designing'],
+          portfolio: ['https://behance.net/apex-designs']
+        },
+        email,
+        isVerified: true,
+        subscriptionPlan: plan
+      })
+      : new User({
+        name,
+        email,
+        role: 'client',
+        isVerified: true,
+        subscriptionPlan: plan,
+        twoFactorEnabled: false,
+        onboardingCompleted: true
+      });
     await user.save();
   } else {
     // Ensure the plan is updated back to the requested role plan
@@ -442,7 +459,7 @@ async function forgotPassword({ email: rawEmail }) {
     throw new HttpError(400, 'Email is required.');
   }
 
-  const user = await User.findOne({ email });
+  const user = await findAccountByEmail(email);
 
   // Always answer the same way so the endpoint cannot be used to probe emails.
   const genericResponse = {
@@ -476,7 +493,7 @@ async function resetPassword({ email: rawEmail, otp, newPassword }) {
     throw new HttpError(400, 'New password must be at least 8 characters.');
   }
 
-  const user = await User.findOne({ email });
+  const user = await findAccountByEmail(email);
   if (!user || user.isDeleted) {
     throw new HttpError(400, 'Invalid or expired reset code.');
   }

@@ -1,5 +1,4 @@
 const AuditLog = require('../models/AuditLog');
-const Artisan = require('../models/Artisan');
 const Notification = require('../models/Notification');
 const SearchLog = require('../models/SearchLog');
 const { deleteImage } = require('./storageService');
@@ -37,18 +36,16 @@ async function deleteUserAccount(user, { confirmText } = {}) {
   const previousPlan = user.subscriptionPlan || 'basic';
   const previousName = user.name;
   const role = user.role;
-
-  let listing = null;
-  if (role === 'artisan') {
-    listing = await Artisan.findOne({ userId: user._id });
-  }
+  // Vendor accounts are their own listing document.
+  const isVendor = role === 'artisan';
+  const catalogueImageKeys = isVendor ? (user.catalogue || []).map(item => item.imageKey) : [];
 
   // Legal / audit retention before PII scrub
   try {
     await AuditLog.create({
       actorId: user._id,
       action: 'account.self_deleted',
-      targetType: 'User',
+      targetType: isVendor ? 'Artisan' : 'User',
       targetId: String(user._id),
       meta: {
         email: previousEmail,
@@ -56,7 +53,7 @@ async function deleteUserAccount(user, { confirmText } = {}) {
         name: previousName,
         role,
         subscriptionPlan: previousPlan,
-        listingId: listing?._id ? String(listing._id) : null,
+        listingId: isVendor ? String(user._id) : null,
         deletedAt: new Date().toISOString()
       }
     });
@@ -91,15 +88,36 @@ async function deleteUserAccount(user, { confirmText } = {}) {
   user.set('twoFactorSecret', undefined);
   // Cancel / downgrade active subscription (MVP payment rule).
   user.subscriptionPlan = 'basic';
-  user.searchCount = 0;
-  user.set('clientProfile', undefined);
-  user.set('artisanProfile', undefined);
-  user.boards = [];
+  if (isVendor) {
+    // Hide + anonymize the public listing; clear portfolio links and catalogue
+    user.set({
+      companyName: 'Deleted Studio',
+      instagram: '',
+      city: '',
+      personOfContact: '',
+      website: '',
+      serviceArea: '',
+      description: '',
+      specialization: [],
+      products: [],
+      customTags: [],
+      portfolio: [],
+      catalogue: [],
+      searchText: '',
+      contactStatus: 'rejected',
+      embedding: undefined
+    });
+  } else {
+    user.searchCount = 0;
+    user.set('clientProfile', undefined);
+    user.boards = [];
+  }
   user.isDeleted = true;
   user.deletedAt = new Date();
   bumpTokenVersion(user);
 
   await user.save();
+  await Promise.all(catalogueImageKeys.map(key => deleteImage(key)));
 
   try {
     await Promise.all([
@@ -108,35 +126,6 @@ async function deleteUserAccount(user, { confirmText } = {}) {
     ]);
   } catch (err) {
     console.warn('Notification / search log cleanup failed:', err.message);
-  }
-
-  // Hide + anonymize public vendor listing; clear portfolio image/links
-  if (role === 'artisan') {
-    await Promise.all((listing?.catalogue || []).map(item => deleteImage(item.imageKey)));
-    await Artisan.updateOne(
-      { userId: user._id },
-      {
-        $set: {
-          companyName: 'Deleted Studio',
-          phoneNumber: '',
-          email: '',
-          instagram: '',
-          city: '',
-          personOfContact: '',
-          website: '',
-          serviceArea: '',
-          description: '',
-          specialization: [],
-          products: [],
-          customTags: [],
-          portfolio: [],
-          catalogue: [],
-          searchText: '',
-          contactStatus: 'rejected'
-        },
-        $unset: { embedding: 1 }
-      }
-    );
   }
 
   return {

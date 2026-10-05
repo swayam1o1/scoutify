@@ -1,5 +1,5 @@
 const jwt = require('jsonwebtoken');
-const User = require('../models/User');
+const { findAccountById } = require('../services/accountLookupService');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'supersecretscoutifykey12345';
 
@@ -45,7 +45,7 @@ async function requireAuth(req, res, next) {
   }
 
   try {
-    const user = await User.findById(decoded.id);
+    const user = await findAccountById(decoded.id, decoded.role);
     if (!user) return res.status(404).json({ message: 'User not found.' });
     if (user.isDeleted) return res.status(401).json({ message: 'This account has been deleted.' });
     if (user.isSuspended) return res.status(403).json({ message: 'This account is suspended. Contact Scoutify support.' });
@@ -72,7 +72,7 @@ async function optionalAuth(req, res, next) {
   if (authHeader && authHeader.startsWith('Bearer ')) {
     try {
       const decoded = jwt.verify(authHeader.split(' ')[1], JWT_SECRET);
-      const user = await User.findById(decoded.id);
+      const user = await findAccountById(decoded.id, decoded.role);
       if (user && isSessionValid(decoded, user) && !user.isDeleted && !user.isSuspended) {
         req.user = user;
         req.userId = user._id;
