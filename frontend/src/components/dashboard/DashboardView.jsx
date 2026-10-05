@@ -3,6 +3,7 @@ import { useCategories } from '../../hooks/useCategories';
 import { ReauthFields } from '../auth/ReauthFields.jsx';
 import { CatalogueManager } from './CatalogueManager.jsx';
 import { ClientSearchAlertsPanel } from '../notifications/ClientSearchAlertsPanel.jsx';
+import { vendorWhatsappUrl } from '../../utils/whatsapp';
 
 const FIRM_TYPES = new Set(['architectural_firm', 'design_firm', 'company', 'firm']);
 
@@ -796,7 +797,7 @@ function ClientPortalPanel({ user, auth, boards, onNavigate }) {
                         </div>
                         {vendor.phoneNumber && (
                           <a
-                            href={`https://wa.me/91${vendor.phoneNumber.split('/')[0].replace(/[^0-9]/g, '')}?text=Hi%20${encodeURIComponent(vendor.personOfContact || vendor.companyName)},%20we%20saved%20your%20profile%20on%20Scoutify%20and%20would%20like%20to%20discuss%20our%20project%20board%20"${encodeURIComponent(activeBoard.name)}".`}
+                            href={vendorWhatsappUrl(vendor)}
                             target="_blank"
                             rel="noopener noreferrer"
                             className="btn btn-secondary"

@@ -1,4 +1,31 @@
+import { useState } from 'react';
+import { VendorProfileModal } from '../search/VendorProfileModal';
+import { vendorWhatsappUrl } from '../../utils/whatsapp';
+
+// Row props that open the vendor profile on click / Enter; inner buttons stop propagation.
+function openable(onOpen) {
+  return {
+    role: 'button',
+    tabIndex: 0,
+    className: 'vendor-row-clickable',
+    title: 'View vendor profile',
+    onClick: onOpen,
+    onKeyDown: (event) => {
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        onOpen();
+      }
+    }
+  };
+}
+
+const stop = (handler) => (event) => {
+  event.stopPropagation();
+  handler();
+};
+
 export function BoardDetailsView({ board, boards, user, onBack, onDeleteBoard }) {
+  const [profileVendor, setProfileVendor] = useState(null);
   const {
     removeVendorFromBoard,
     saveVendorToBoard,
@@ -20,8 +47,33 @@ export function BoardDetailsView({ board, boards, user, onBack, onDeleteBoard })
     handleBoardAiSearch
   } = boards;
 
+  const isSaved = (vendorId) => board.vendors?.some(v => String(v._id || v) === String(vendorId));
+  const profileSaved = profileVendor && isSaved(profileVendor._id);
+
   return (
     <div className="dashboard-container animate-fade-in" style={{ maxWidth: '1200px', margin: '0 auto', padding: '0 20px 60px' }}>
+      {profileVendor && (
+        <VendorProfileModal
+          vendor={profileVendor}
+          user={user}
+          onClose={() => setProfileVendor(null)}
+          actions={profileSaved ? (
+            <button
+              type="button"
+              className="btn btn-outline"
+              style={{ color: 'var(--color-danger)', borderColor: 'var(--tone-danger-border)' }}
+              onClick={() => removeVendorFromBoard(board._id, profileVendor._id)}
+            >
+              Remove from board
+            </button>
+          ) : (
+            <button type="button" className="btn btn-primary" onClick={() => saveVendorToBoard(board._id, profileVendor._id)}>
+              + Add to board
+            </button>
+          )}
+        />
+      )}
+
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px', borderBottom: '1px solid var(--border-color)', paddingBottom: '16px' }}>
         <div>
           <button
@@ -61,6 +113,7 @@ export function BoardDetailsView({ board, boards, user, onBack, onDeleteBoard })
                 {board.vendors.map(vendor => (
                   <div
                     key={vendor._id}
+                    {...openable(() => setProfileVendor(vendor))}
                     style={{
                       padding: '16px',
                       borderRadius: '12px',
@@ -79,9 +132,10 @@ export function BoardDetailsView({ board, boards, user, onBack, onDeleteBoard })
                       <div style={{ display: 'flex', gap: '10px', marginTop: '6px' }}>
                         {vendor.phoneNumber && (
                           <a
-                            href={`https://wa.me/91${vendor.phoneNumber.split('/')[0].replace(/[^0-9]/g, '')}?text=Hi%20${encodeURIComponent(vendor.personOfContact || vendor.companyName)},%20we%20saved%20your%20profile%20on%20Scoutify%20and%20would%20like%20to%20discuss%20our%20project%20board%20"${encodeURIComponent(board.name)}".`}
+                            href={vendorWhatsappUrl(vendor)}
                             target="_blank"
                             rel="noopener noreferrer"
+                            onClick={(event) => event.stopPropagation()}
                             style={{ fontSize: '11px', color: '#25D366', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '4px', fontWeight: 'bold' }}
                           >
                             💬 WhatsApp
@@ -93,7 +147,7 @@ export function BoardDetailsView({ board, boards, user, onBack, onDeleteBoard })
                     <button
                       className="btn btn-outline"
                       style={{ padding: '4px 8px', fontSize: '11px', color: 'var(--color-danger)', borderColor: 'var(--tone-danger-border)' }}
-                      onClick={() => removeVendorFromBoard(board._id, vendor._id)}
+                      onClick={stop(() => removeVendorFromBoard(board._id, vendor._id))}
                     >
                       Remove
                     </button>
@@ -136,6 +190,7 @@ export function BoardDetailsView({ board, boards, user, onBack, onDeleteBoard })
                     {boardRecommendations.map(rec => (
                       <div
                         key={rec._id}
+                        {...openable(() => setProfileVendor(rec))}
                         style={{
                           padding: '12px',
                           borderRadius: '8px',
@@ -156,7 +211,7 @@ export function BoardDetailsView({ board, boards, user, onBack, onDeleteBoard })
                         <button
                           className="btn btn-purple"
                           style={{ padding: '6px 12px', fontSize: '11px' }}
-                          onClick={() => saveVendorToBoard(board._id, rec._id)}
+                          onClick={stop(() => saveVendorToBoard(board._id, rec._id))}
                         >
                           + Save to Board
                         </button>
@@ -263,10 +318,11 @@ export function BoardDetailsView({ board, boards, user, onBack, onDeleteBoard })
 
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', maxHeight: '350px', overflowY: 'auto', paddingRight: '4px' }}>
                     {boardSearchResults.map(artisan => {
-                      const isSaved = board.vendors?.some(v => (v._id || v).toString() === artisan._id.toString());
+                      const saved = isSaved(artisan._id);
                       return (
                         <div
                           key={artisan._id}
+                          {...openable(() => setProfileVendor(artisan))}
                           style={{
                             padding: '12px',
                             borderRadius: '8px',
@@ -291,10 +347,11 @@ export function BoardDetailsView({ board, boards, user, onBack, onDeleteBoard })
                             </div>
                           </div>
 
-                          {isSaved ? (
+                          {saved ? (
                             <button
                               className="btn"
                               disabled
+                              onClick={(event) => event.stopPropagation()}
                               style={{ padding: '6px 10px', fontSize: '11px', background: 'var(--surface-2)', color: 'var(--color-text-disabled)', border: 'none' }}
                             >
                               ✓ Added
@@ -303,7 +360,7 @@ export function BoardDetailsView({ board, boards, user, onBack, onDeleteBoard })
                             <button
                               className="btn btn-primary"
                               style={{ padding: '6px 10px', fontSize: '11px' }}
-                              onClick={() => saveVendorToBoard(board._id, artisan._id)}
+                              onClick={stop(() => saveVendorToBoard(board._id, artisan._id))}
                             >
                               + Add
                             </button>
