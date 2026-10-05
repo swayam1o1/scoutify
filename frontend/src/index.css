@@ -435,6 +435,90 @@ select.form-control option {
   }
 }
 
+/* App alert / confirm dialog (replaces window.alert / window.confirm) */
+.app-dialog-overlay {
+  z-index: 3000;
+}
+
+.app-dialog {
+  width: 100%;
+  max-width: 420px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 16px;
+  padding: 24px;
+  box-shadow: var(--shadow-lg);
+  animation: toastSlideIn 0.2s ease-out;
+}
+
+.app-dialog-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.app-dialog-header h3 {
+  font-size: 18px;
+  margin: 0;
+}
+
+.app-dialog-icon {
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 15px;
+  background: var(--surface-2);
+  color: var(--color-text-primary);
+  border: 1px solid var(--border-color);
+}
+
+.app-dialog-success .app-dialog-icon {
+  background: var(--tone-success-bg);
+  color: var(--tone-success-text);
+  border-color: var(--tone-success-border);
+}
+
+.app-dialog-error .app-dialog-icon {
+  background: var(--tone-danger-bg);
+  color: var(--tone-danger-text);
+  border-color: var(--tone-danger-border);
+}
+
+.app-dialog-message {
+  color: var(--color-text-secondary);
+  font-size: 14px;
+  line-height: 1.5;
+  margin: 0 0 20px 44px;
+  white-space: pre-line;
+}
+
+.app-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.app-dialog-actions .btn {
+  padding: 9px 20px;
+  font-size: 14px;
+}
+
+.btn-danger-solid {
+  background: var(--color-danger);
+  color: #fff;
+  font-weight: 600;
+}
+
+.btn-danger-solid:hover {
+  filter: brightness(1.1);
+}
+
 /* Responsive grid layout utilities */
 .grid-container {
   display: grid;

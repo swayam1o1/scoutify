@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { ImagePlus, Trash, X } from 'lucide-react';
 import { assetUrl, authFetch } from '../../api/client';
 import { fileToResizedDataUrl, IMAGE_ACCEPT } from '../../utils/image';
+import { showConfirm } from '../ui/dialog';
 
 const EMPTY_FORM = { title: '', category: '', material: '', description: '' };
 
@@ -71,7 +72,12 @@ export function CatalogueManager({ token, hasListing }) {
   };
 
   const removeItem = async (itemId) => {
-    if (!window.confirm('Remove this product from your catalogue?')) return;
+    const confirmed = await showConfirm('This product and its photo will be removed from your catalogue.', {
+      title: 'Remove product?',
+      confirmLabel: 'Remove',
+      danger: true
+    });
+    if (!confirmed) return;
     try {
       const res = await authFetch(`/artisan/catalogue/${itemId}`, { token, method: 'DELETE' });
       const data = await res.json();

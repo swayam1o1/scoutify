@@ -18,6 +18,7 @@ const { getGenerativeModel, generateWithRetry, embedText } = require('./geminiSe
 const { parseImageDataUrl } = require('../utils/imageUpload');
 const { asString, buildClientImagePrompt, parseClientImageJson, imagePart } = require('../utils/visualSearch');
 const { getClientPreferences } = require('../utils/clientPreferences');
+const { buildSearchTerms, searchTermsFilter, scoreSearchTerms } = require('../utils/searchTerms');
 const { JWT_SECRET, isSessionValid } = require('../middleware/auth');
 const {
   applyPreferences,
@@ -29,6 +30,43 @@ const {
 } = require('./semanticRankingService');
 
 const IMAGE_RESULT_LIMIT = 6;
+const TEXT_RESULT_LIMIT = 5;
+// Vector neighbours with no query word in their listing are only kept when clearly similar;
+// otherwise any vendor in the right city surfaces as a "match".
+const MIN_SEMANTIC_WITHOUT_KEYWORDS = 0.62;
+
+function extractedTerms(extracted) {
+  return buildSearchTerms(extracted.productType, extracted.service, extracted.material, extracted.synonyms || []);
+}
+
+// Listings that mention the brief's words (or synonyms) by name, specialization, products or
+// catalogue. Covers the many vendors that have no embedding yet.
+async function keywordMatches(extracted, terms, { excludeIds = [], limit }) {
+  const termsFilter = searchTermsFilter(terms);
+  if (!termsFilter || limit <= 0) return [];
+  const query = includeCity => {
+    const conditions = [PUBLIC_STATUS_FILTER, termsFilter, { _id: { $nin: excludeIds } }];
+    if (includeCity && extracted.city) {
+      const cityRegex = { $regex: escapeRegex(extracted.city.trim()), $options: 'i' };
+      conditions.push({ $or: [{ city: cityRegex }, { serviceArea: cityRegex }] });
+    }
+    return { $and: conditions };
+  };
+  let docs = await Artisan.find(query(true)).select('-embedding -catalogue.embedding').lean();
+  if (docs.length === 0 && extracted.city && excludeIds.length === 0) {
+    docs = await Artisan.find(query(false)).select('-embedding -catalogue.embedding').lean();
+  }
+  return docs
+    .map(artisan => ({ artisan, relevance: scoreSearchTerms(artisan, terms) }))
+    .sort((left, right) => right.relevance.matchedWords - left.relevance.matchedWords || right.relevance.score - left.relevance.score)
+    .slice(0, limit)
+    .map(({ artisan, relevance }) => ({
+      ...sanitizeArtisanForUser(artisan),
+      matchedItems: keywordCatalogueMatches(artisan.catalogue, extracted),
+      matchPercentage: Math.min(90, 50 + relevance.matchedWords * 10 + relevance.score * 3),
+      aiReasoning: `Listing mentions ${extracted.productType || extracted.service || 'what you searched for'} in its ${relevance.score >= 3 ? 'specialization, products or catalogue' : 'name or description'}.`
+    }));
+}
 
 function catalogueOrConditions(extracted) {
   const terms = [extracted.productType, extracted.service, extracted.material, ...(extracted.synonyms || [])]
@@ -51,7 +89,8 @@ function buildDbQuery(extracted, { includeCity = true } = {}) {
   const conditions = [PUBLIC_STATUS_FILTER];
   const serviceFilter = serviceOrConditions(extracted);
   const catalogueFilter = catalogueOrConditions(extracted);
-  const orConditions = [...(serviceFilter?.$or || []), ...catalogueFilter];
+  const termsFilter = searchTermsFilter(extractedTerms(extracted));
+  const orConditions = [...(serviceFilter?.$or || []), ...catalogueFilter, ...(termsFilter?.$or || [])];
   if (orConditions.length) conditions.push({ $or: orConditions });
   if (includeCity && extracted.city) {
     const cityRegex = { $regex: escapeRegex(extracted.city.trim()), $options: 'i' };
@@ -177,15 +216,23 @@ async function textSearch(query, user) {
       // Prefer vector ranking when embeddings exist (vendor profiles + catalogue items)
       try {
         const queryEmbedding = await embedText(semanticQuery);
-        const semanticResults = await semanticSearch(queryEmbedding, semanticQuery, {
+        const terms = extractedTerms(extracted);
+        const semanticResults = (await semanticSearch(queryEmbedding, semanticQuery, {
           city: extracted.city,
           extracted,
-          limit: 5,
+          limit: TEXT_RESULT_LIMIT,
           prefs
+        })).filter(artisan => terms.length === 0
+          || scoreSearchTerms(artisan, terms).matchedWords > 0
+          || artisan.semanticScore >= MIN_SEMANTIC_WITHOUT_KEYWORDS);
+
+        const keywordResults = await keywordMatches(extracted, terms, {
+          excludeIds: semanticResults.map(artisan => artisan._id),
+          limit: TEXT_RESULT_LIMIT - semanticResults.length
         });
 
-        if (semanticResults.length > 0) {
-          const results = semanticResults.map(artisan => ({
+        if (semanticResults.length > 0 || keywordResults.length > 0) {
+          const semanticHits = semanticResults.map(artisan => ({
             ...sanitizeArtisanForUser(artisan),
             matchPercentage: Math.max(0, Math.min(99, Math.round(artisan.combinedScore * 100))),
             aiReasoning: (artisan.matchedItems.length && artisan.itemScore >= artisan.semanticScore
@@ -195,6 +242,8 @@ async function textSearch(query, user) {
                 ? ` aligned with ${[extracted.material, extracted.useCase, extracted.designPreference].filter(Boolean).join(', ')}.`
                 : ` and ${Math.round(artisan.nameScore * 100)}% name similarity.`)
           }));
+          const results = [...semanticHits, ...applyPreferences(keywordResults, prefs, extracted)]
+            .sort((left, right) => right.matchPercentage - left.matchPercentage);
           const summary = (await maybeSummarize(model, query, extracted, results.length))
             || fallbackSummary(extracted, results.length);
           const suggestions = await maybeSuggestions(model, query, extracted);
@@ -204,7 +253,7 @@ async function textSearch(query, user) {
             extracted,
             summary,
             suggestions,
-            semantic: true,
+            semantic: semanticHits.length > 0,
             simulated: false
           });
         }

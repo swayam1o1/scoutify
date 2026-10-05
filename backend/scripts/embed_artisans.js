@@ -6,23 +6,17 @@
 require('dotenv').config();
 const mongoose = require('mongoose');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
+const loadSecrets = require('../config/loadSecrets');
 const Artisan = require('../models/Artisan');
 const { buildSearchText, buildEmbeddingText } = require('../utils/artisanFields');
 const { catalogueItemText } = require('../utils/visualSearch');
-
-const MONGO_URI = process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/scoutify';
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
-
-if (!GEMINI_API_KEY) {
-  throw new Error('GEMINI_API_KEY is required to generate artisan embeddings.');
-}
 
 const EMBEDDING_MODEL = 'gemini-embedding-001';
 const EMBEDDING_DIMENSIONS = 3072;
 const ONLY_MISSING = process.argv.includes('--missing');
 
-const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
-const embeddingModel = genAI.getGenerativeModel({ model: EMBEDDING_MODEL });
+// Created after loadSecrets(): on EC2 the key comes from Secrets Manager, not .env.
+let embeddingModel = null;
 
 async function embed(text, label) {
   for (let attempt = 0; ; attempt++) {
@@ -44,7 +38,13 @@ async function embed(text, label) {
 }
 
 async function run() {
-  await mongoose.connect(MONGO_URI);
+  await loadSecrets();
+  if (!process.env.GEMINI_API_KEY) {
+    throw new Error('GEMINI_API_KEY is required to generate artisan embeddings.');
+  }
+  embeddingModel = new GoogleGenerativeAI(process.env.GEMINI_API_KEY).getGenerativeModel({ model: EMBEDDING_MODEL });
+
+  await mongoose.connect(process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/scoutify');
   const filter = ONLY_MISSING ? { $or: [{ embedding: { $exists: false } }, { embedding: { $size: 0 } }] } : {};
   const artisans = await Artisan.find(filter);
   console.log(`Embedding ${artisans.length} listing(s)${ONLY_MISSING ? ' without a profile embedding' : ''}...`);

@@ -981,6 +981,39 @@
   opacity: 1;
 }
 
+/* Boards list: name filter + create modal */
+.board-filter {
+  position: relative;
+  width: 240px;
+}
+
+.board-filter .form-control {
+  padding: 9px 14px 9px 36px;
+  font-size: 14px;
+  height: auto;
+}
+
+.board-filter-icon {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--color-text-secondary);
+  pointer-events: none;
+}
+
+.create-board-modal {
+  max-width: 440px;
+  padding: 28px;
+}
+
+@media (max-width: 640px) {
+  .board-filter {
+    width: 100%;
+    flex: 1;
+  }
+}
+
 /* Details grid layout responsiveness */
 @media (max-width: 900px) {
   .board-details-grid {
