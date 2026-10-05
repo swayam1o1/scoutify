@@ -6,6 +6,7 @@ const { sanitizeArtisanForUser } = require('../utils/sanitizeArtisan');
 const { PUBLIC_STATUS_FILTER } = require('../constants/artisan');
 const {
   parseExtractedJson,
+  withQueryFallbacks,
   regexExtract,
   buildIntentPrompt,
   buildSummaryPrompt,
@@ -19,6 +20,8 @@ const { parseImageDataUrl } = require('../utils/imageUpload');
 const { asString, buildClientImagePrompt, parseClientImageJson, imagePart } = require('../utils/visualSearch');
 const { getClientPreferences } = require('../utils/clientPreferences');
 const { buildSearchTerms, searchTermsFilter, scoreSearchTerms } = require('../utils/searchTerms');
+const { locationFilter } = require('../utils/locations');
+const { BASIC_RESULT_LIMIT } = require('./searchService');
 const { JWT_SECRET, isSessionValid } = require('../middleware/auth');
 const {
   applyPreferences,
@@ -30,7 +33,7 @@ const {
 } = require('./semanticRankingService');
 
 const IMAGE_RESULT_LIMIT = 6;
-const TEXT_RESULT_LIMIT = 5;
+const TEXT_RESULT_LIMIT = 50;
 // Vector neighbours with no query word in their listing are only kept when clearly similar;
 // otherwise any vendor in the right city surfaces as a "match".
 const MIN_SEMANTIC_WITHOUT_KEYWORDS = 0.62;
@@ -46,10 +49,8 @@ async function keywordMatches(extracted, terms, { excludeIds = [], limit }) {
   if (!termsFilter || limit <= 0) return [];
   const query = includeCity => {
     const conditions = [PUBLIC_STATUS_FILTER, termsFilter, { _id: { $nin: excludeIds } }];
-    if (includeCity && extracted.city) {
-      const cityRegex = { $regex: escapeRegex(extracted.city.trim()), $options: 'i' };
-      conditions.push({ $or: [{ city: cityRegex }, { serviceArea: cityRegex }] });
-    }
+    const locationCondition = includeCity && locationFilter(extracted.city);
+    if (locationCondition) conditions.push(locationCondition);
     return { $and: conditions };
   };
   let docs = await Artisan.find(query(true)).select('-embedding -catalogue.embedding').lean();
@@ -92,10 +93,8 @@ function buildDbQuery(extracted, { includeCity = true } = {}) {
   const termsFilter = searchTermsFilter(extractedTerms(extracted));
   const orConditions = [...(serviceFilter?.$or || []), ...catalogueFilter, ...(termsFilter?.$or || [])];
   if (orConditions.length) conditions.push({ $or: orConditions });
-  if (includeCity && extracted.city) {
-    const cityRegex = { $regex: escapeRegex(extracted.city.trim()), $options: 'i' };
-    conditions.push({ $or: [{ city: cityRegex }, { serviceArea: cityRegex }] });
-  }
+  const locationCondition = includeCity && locationFilter(extracted.city);
+  if (locationCondition) conditions.push(locationCondition);
   return { $and: conditions };
 }
 
@@ -186,16 +185,27 @@ function validateTextQuery(query) {
  */
 async function textSearch(query, user) {
   const prefs = getClientPreferences(user);
-  const reply = payload => ({
-    payload: { ...payload, personalized: Boolean(prefs) },
-    search: {
-      searchType: 'ai_text',
-      query,
-      extracted: payload.extracted,
-      results: payload.results,
-      simulated: payload.simulated
-    }
-  });
+  const userPlan = user ? user.subscriptionPlan : 'basic';
+  const reply = payload => {
+    const totalResults = payload.results.length;
+    const results = userPlan === 'basic' ? payload.results.slice(0, BASIC_RESULT_LIMIT) : payload.results;
+    return {
+      payload: {
+        ...payload,
+        results,
+        totalResults,
+        paywallActive: userPlan === 'basic' && totalResults > BASIC_RESULT_LIMIT,
+        personalized: Boolean(prefs)
+      },
+      search: {
+        searchType: 'ai_text',
+        query,
+        extracted: payload.extracted,
+        results,
+        simulated: payload.simulated
+      }
+    };
+  };
 
   const model = getGenerativeModel();
   if (model) {
@@ -210,6 +220,7 @@ async function textSearch(query, user) {
         console.warn('Gemini intent parse failed, using regex fallback:', parseErr.message);
         extracted = regexExtract(query);
       }
+      extracted = withQueryFallbacks(extracted, query);
 
       const semanticQuery = extracted.expandedQuery || query;
 
@@ -363,12 +374,12 @@ No markdown.`;
 
   // --- Offline / no-key fallback ---
   const extracted = regexExtract(query);
-  let candidates = await Artisan.find(buildDbQuery(extracted)).select('-embedding -catalogue.embedding').limit(5);
+  let candidates = await Artisan.find(buildDbQuery(extracted)).select('-embedding -catalogue.embedding').limit(TEXT_RESULT_LIMIT);
   if (candidates.length === 0 && extracted.service) {
     candidates = await Artisan.find({
       ...PUBLIC_STATUS_FILTER,
       specialization: { $regex: escapeRegex(extracted.service), $options: 'i' }
-    }).select('-embedding -catalogue.embedding').limit(5);
+    }).select('-embedding -catalogue.embedding').limit(TEXT_RESULT_LIMIT);
   }
 
   const mockReasonings = [
@@ -380,7 +391,7 @@ No markdown.`;
   const results = applyPreferences(candidates.map((c, idx) => ({
     ...sanitizeArtisanForUser(c),
     matchedItems: keywordCatalogueMatches(c.catalogue, extracted),
-    matchPercentage: 92 - idx * 6,
+    matchPercentage: Math.max(40, 92 - idx * 6),
     aiReasoning: mockReasonings[idx] || `Verified specialist in ${c.city}.`
   })), prefs, extracted);
 
@@ -426,6 +437,7 @@ async function imageSearch({ image: imageDataUrl, note: rawNote }, user) {
     }
     extracted = regexExtract(note);
   }
+  if (note) extracted = withQueryFallbacks(extracted, note);
 
   const briefForAi = note
     ? `Photo of ${extracted.productType || 'an item'} — client note: ${note}`

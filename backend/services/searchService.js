@@ -2,7 +2,8 @@ const Artisan = require('../models/Artisan');
 const { sanitizeArtisans } = require('../utils/sanitizeArtisan');
 const { PUBLIC_STATUS_FILTER } = require('../constants/artisan');
 const { getClientPreferences, scorePreferences } = require('../utils/clientPreferences');
-const { buildSearchTerms, searchTermsFilter, scoreSearchTerms, escapeRegex } = require('../utils/searchTerms');
+const { buildSearchTerms, searchTermsFilter, scoreSearchTerms } = require('../utils/searchTerms');
+const { locationFilter } = require('../utils/locations');
 
 const BASIC_RESULT_LIMIT = 10;
 
@@ -13,10 +14,8 @@ async function standardSearch({ service, location }, user) {
   const terms = buildSearchTerms(service);
   const termsFilter = searchTermsFilter(terms);
   if (termsFilter) conditions.push(termsFilter);
-  if (location?.trim()) {
-    const cityRegex = { $regex: escapeRegex(location.trim()), $options: 'i' };
-    conditions.push({ $or: [{ city: cityRegex }, { serviceArea: cityRegex }] });
-  }
+  const locationCondition = locationFilter(location);
+  if (locationCondition) conditions.push(locationCondition);
 
   const isLoggedIn = Boolean(user);
   const userPlan = user ? user.subscriptionPlan : 'basic';
@@ -67,4 +66,4 @@ async function standardSearch({ service, location }, user) {
   };
 }
 
-module.exports = { standardSearch };
+module.exports = { standardSearch, BASIC_RESULT_LIMIT };

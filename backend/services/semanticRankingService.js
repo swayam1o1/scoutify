@@ -2,6 +2,7 @@ const Artisan = require('../models/Artisan');
 const { PUBLIC_STATUS_FILTER } = require('../constants/artisan');
 const { cosineSimilarity } = require('./geminiService');
 const { scorePreferences } = require('../utils/clientPreferences');
+const { locationFilter } = require('../utils/locations');
 
 const MIN_ITEM_SCORE = 0.55;
 const MIN_PROFILE_IMAGE_SCORE = 0.55;
@@ -141,8 +142,8 @@ async function semanticSearch(queryEmbedding, queryText, { city, extracted, limi
       { 'catalogue.embedding.0': { $exists: true } }
     ]
   };
-  if (city) filter.city = { $regex: escapeRegex(city.trim()), $options: 'i' };
-  const candidates = await Artisan.find(filter).lean();
+  const locationCondition = locationFilter(city);
+  const candidates = await Artisan.find(locationCondition ? { $and: [filter, locationCondition] } : filter).lean();
 
   return candidates.map(artisan => {
     const profileScore = cosineSimilarity(artisan.embedding, queryEmbedding);

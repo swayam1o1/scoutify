@@ -144,8 +144,8 @@ export function useSearch({ token, user, onRequireAuth, demoLogin }) {
 
       updateSearchMode('ai', {
         results: data.results || [],
-        totalResults: data.results?.length || 0,
-        paywallActive: false,
+        totalResults: data.totalResults ?? data.results?.length ?? 0,
+        paywallActive: data.paywallActive || false,
         extracted: data.extracted || null,
         summary: data.summary || null,
         suggestions: Array.isArray(data.suggestions) ? data.suggestions : [],
@@ -247,8 +247,8 @@ export function useSearch({ token, user, onRequireAuth, demoLogin }) {
       if (!isLatestSearchRequest('ai', requestId)) return;
       updateSearchMode('ai', {
         results: data.results || [],
-        totalResults: data.results?.length || 0,
-        paywallActive: false,
+        totalResults: data.totalResults ?? data.results?.length ?? 0,
+        paywallActive: data.paywallActive || false,
         extracted: data.extracted || null,
         summary: data.summary || null,
         suggestions: Array.isArray(data.suggestions) ? data.suggestions : [],
