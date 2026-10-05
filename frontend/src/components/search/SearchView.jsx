@@ -178,14 +178,14 @@ export function SearchView({ search, boards, user, onRequireAuth, onNavigate }) 
                 <label className="form-label">
                   {aiImage
                     ? 'Add a note about the item (optional): city, material, quantity...'
-                    : 'Explain your project requirements in detail (use case, material, design, budget, city, distance)'}
+                    : 'Explain your project requirements in detail (use case, material, design, city, distance)'}
                 </label>
                 <textarea
                   className="form-control"
                   rows={3}
                   placeholder={aiImage
                     ? 'e.g. "Need 20 of these for a cafe in Pune, in teak."'
-                    : 'e.g. "Find handcrafted wooden furniture manufacturers near Bangalore for a hospitality project under 5 lakhs."'}
+                    : 'e.g. "Find handcrafted wooden furniture manufacturers near Bangalore for a hospitality project"'}
                   value={aiQuery}
                   onChange={(e) => setAiQuery(e.target.value)}
                   onKeyDown={(e) => {

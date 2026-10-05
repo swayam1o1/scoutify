@@ -4,7 +4,6 @@
  */
 const crypto = require('crypto');
 const mongoose = require('mongoose');
-const User = require('../models/User');
 const Artisan = require('../models/Artisan');
 const SearchLog = require('../models/SearchLog');
 const Notification = require('../models/Notification');
@@ -63,19 +62,15 @@ async function notifyMatchedVendors({ searcherId, searchType, query, extracted, 
     .slice(0, MAX_VENDORS_PER_SEARCH);
   if (top.length === 0) return 0;
 
-  const listings = await Artisan.find({
+  // Only listings that are also active vendor accounts can receive in-app alerts.
+  const vendorAccounts = await Artisan.find({
     ...PUBLIC_STATUS_FILTER,
     _id: { $in: top.map(result => result._id) },
-    userId: { $exists: true, $ne: null }
-  }).select('userId').lean();
-
-  const vendorUsers = await User.find({
-    _id: { $in: listings.map(listing => listing.userId) },
-    role: 'artisan',
+    hasAccount: true,
     isDeleted: { $ne: true },
     isSuspended: { $ne: true }
   }).select('_id').lean();
-  const activeUserIds = new Set(vendorUsers.map(user => String(user._id)));
+  const activeVendorIds = new Set(vendorAccounts.map(vendor => String(vendor._id)));
 
   const topic = searchTopic(extracted, query);
   const key = dedupeKey(searcherId, topic);
@@ -83,17 +78,16 @@ async function notifyMatchedVendors({ searcherId, searchType, query, extracted, 
   const docs = [];
 
   for (const result of top) {
-    const listing = listings.find(item => String(item._id) === String(result._id));
-    const vendorUserId = listing?.userId && String(listing.userId);
-    if (!vendorUserId || !activeUserIds.has(vendorUserId) || vendorUserId === String(searcherId)) continue;
+    const vendorId = String(result._id);
+    if (!activeVendorIds.has(vendorId) || vendorId === String(searcherId)) continue;
 
     const [alreadyNotified, sentToday] = await Promise.all([
-      Notification.exists({ userId: vendorUserId, dedupeKey: key, createdAt: { $gte: since } }),
-      Notification.countDocuments({ userId: vendorUserId, type: 'search_match', createdAt: { $gte: since } })
+      Notification.exists({ userId: vendorId, dedupeKey: key, createdAt: { $gte: since } }),
+      Notification.countDocuments({ userId: vendorId, type: 'search_match', createdAt: { $gte: since } })
     ]);
     if (alreadyNotified || sentToday >= DAILY_CAP_PER_VENDOR) continue;
 
-    docs.push({ userId: vendorUserId, dedupeKey: key, ...buildNotification({ searchType, extracted: extracted || {}, result }) });
+    docs.push({ userId: vendorId, dedupeKey: key, ...buildNotification({ searchType, extracted: extracted || {}, result }) });
   }
 
   if (docs.length) await Notification.insertMany(docs);

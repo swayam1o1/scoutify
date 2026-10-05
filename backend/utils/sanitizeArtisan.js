@@ -2,6 +2,7 @@
  * Public (guest) vs authenticated artisan payload shaping.
  * Guests: name, categories, city, summary only — no contact fields.
  */
+const { ARTISAN_ACCOUNT_FIELDS } = require('../constants/artisan');
 
 const PUBLIC_FIELDS = [
   '_id',
@@ -56,8 +57,9 @@ function sanitizeArtisanForGuest(artisan) {
 function sanitizeArtisanForUser(artisan) {
   const plain = toPlain(artisan);
   if (!plain) return null;
-  // Never send large embedding vectors to the client
+  // Never send large embedding vectors or vendor login/account state to the client
   const { embedding, approvedSnapshot, ...rest } = plain;
+  for (const field of ARTISAN_ACCOUNT_FIELDS) delete rest[field];
   return { ...rest, catalogue: sanitizeCatalogue(plain.catalogue), contactLocked: false };
 }
 

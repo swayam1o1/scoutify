@@ -2,6 +2,7 @@ const bcrypt = require('bcryptjs');
 const User = require('../models/User');
 const Artisan = require('../models/Artisan');
 const AuditLog = require('../models/AuditLog');
+const Notification = require('../models/Notification');
 const HttpError = require('../utils/httpError');
 const { signToken } = require('../middleware/auth');
 const { toList, buildSearchText, pickListingSnapshot, diffListing } = require('../utils/artisanFields');
@@ -15,6 +16,8 @@ const {
 } = require('../constants/artisan');
 
 const NOT_DELETED = { isDeleted: { $ne: true } };
+// Vendor sign-ups that never verified their email are not real submissions yet.
+const HIDE_UNVERIFIED_ACCOUNTS = { $nor: [{ hasAccount: true, isVerified: false }] };
 const SAFE_USER_FIELDS = '-passwordHash -otp -otpExpires -twoFactorSecret -passwordResetOtp -passwordResetExpires -reauthOtp -reauthOtpExpires -pendingEmailOtp -pendingPhoneOtp -phoneOtp';
 
 // Audit writes must never break the admin action itself.
@@ -91,13 +94,19 @@ async function getStats() {
     subscriptionBreakdown
   ] = await Promise.all([
     User.countDocuments({ role: 'client', ...NOT_DELETED }),
-    User.countDocuments({ role: 'artisan', ...NOT_DELETED }),
+    Artisan.countDocuments({ hasAccount: true, ...NOT_DELETED }),
     Artisan.countDocuments(PUBLIC_STATUS_FILTER),
-    Artisan.countDocuments({ contactStatus: 'pending' }),
-    Artisan.countDocuments({ contactStatus: 'rejected' }),
-    User.countDocuments({ isSuspended: true, ...NOT_DELETED }),
-    User.countDocuments({ isDeleted: true }),
-    Artisan.countDocuments({}),
+    Artisan.countDocuments({ contactStatus: 'pending', ...HIDE_UNVERIFIED_ACCOUNTS }),
+    Artisan.countDocuments({ contactStatus: 'rejected', ...HIDE_UNVERIFIED_ACCOUNTS }),
+    Promise.all([
+      User.countDocuments({ isSuspended: true, ...NOT_DELETED }),
+      Artisan.countDocuments({ hasAccount: true, isSuspended: true, ...NOT_DELETED })
+    ]).then(([users, vendorAccounts]) => users + vendorAccounts),
+    Promise.all([
+      User.countDocuments({ isDeleted: true }),
+      Artisan.countDocuments({ hasAccount: true, isDeleted: true })
+    ]).then(([users, vendorAccounts]) => users + vendorAccounts),
+    Artisan.countDocuments(HIDE_UNVERIFIED_ACCOUNTS),
     User.aggregate([
       { $match: { role: 'client', ...NOT_DELETED } },
       { $group: { _id: '$subscriptionPlan', count: { $sum: 1 } } }
@@ -127,7 +136,7 @@ async function getStats() {
 }
 
 async function listVendors({ status, search, limit: rawLimit }) {
-  const query = {};
+  const query = { ...HIDE_UNVERIFIED_ACCOUNTS };
 
   if (status && status !== 'all') {
     if (!CONTACT_STATUSES.includes(status)) {
@@ -159,10 +168,21 @@ async function getVendorDetail(id) {
   const vendor = await Artisan.findById(id).select('-embedding -catalogue.embedding');
   if (!vendor) throw new HttpError(404, 'Vendor not found.');
 
-  const owner = vendor.userId
-    ? await User.findById(vendor.userId)
-      .select('name email phoneNumber phoneVerified isVerified isSuspended isDeleted twoFactorEnabled subscriptionPlan createdAt')
-      .lean()
+  // The listing doubles as the vendor's login account when hasAccount is set.
+  const owner = vendor.hasAccount
+    ? {
+      _id: vendor._id,
+      name: vendor.name,
+      email: vendor.email,
+      phoneNumber: vendor.phoneNumber,
+      phoneVerified: !!vendor.phoneVerified,
+      isVerified: !!vendor.isVerified,
+      isSuspended: !!vendor.isSuspended,
+      isDeleted: !!vendor.isDeleted,
+      twoFactorEnabled: !!vendor.twoFactorEnabled,
+      subscriptionPlan: vendor.subscriptionPlan || 'basic',
+      createdAt: vendor.createdAt
+    }
     : null;
 
   const review = reviewSummary(vendor);
@@ -253,11 +273,16 @@ async function createVendor(actor, body) {
 async function deleteVendor(actor, id) {
   const vendor = await Artisan.findByIdAndDelete(id);
   if (!vendor) throw new HttpError(404, 'Vendor not found.');
-  await Promise.all((vendor.catalogue || []).map(item => deleteImage(item.imageKey)));
+  await Promise.all([
+    ...(vendor.catalogue || []).map(item => deleteImage(item.imageKey)),
+    Notification.deleteMany({ userId: vendor._id })
+  ]);
 
   await writeAudit(actor, 'vendor.deleted', 'Artisan', vendor._id, {
     companyName: vendor.companyName,
-    city: vendor.city
+    city: vendor.city,
+    hadAccount: !!vendor.hasAccount,
+    email: vendor.hasAccount ? vendor.email : undefined
   });
 }
 

@@ -1,5 +1,7 @@
 const mongoose = require('mongoose');
-const { CONTACT_STATUSES } = require('../constants/artisan');
+const { CONTACT_STATUSES, ARTISAN_ACCOUNT_FIELDS } = require('../constants/artisan');
+
+const secret = type => ({ type, select: false });
 
 const embeddingField = {
   type: [Number],
@@ -45,13 +47,45 @@ const ArtisanSchema = new mongoose.Schema({
   approvedSnapshot: { type: mongoose.Schema.Types.Mixed, default: undefined },
   lastApprovedAt: { type: Date },
   changeRequestedAt: { type: Date },
-  userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }
+
+  // Vendor login account. Vendors sign in with this document (never the users
+  // collection); `email` / `phoneNumber` above double as the login identity.
+  // Imported listings have no account until the vendor registers.
+  hasAccount: { type: Boolean },
+  name: { type: String },
+  passwordHash: secret(String),
+  tokenVersion: { type: Number, default: 0, select: false },
+  googleId: secret(String),
+  isVerified: { type: Boolean },
+  otp: secret(String),
+  otpExpires: secret(Date),
+  phoneVerified: { type: Boolean },
+  phoneOtp: secret(String),
+  phoneOtpExpires: secret(Date),
+  subscriptionPlan: { type: String, enum: ['basic', 'pro', 'enterprise'] },
+  twoFactorSecret: secret(String),
+  twoFactorEnabled: { type: Boolean },
+  passwordResetOtp: secret(String),
+  passwordResetExpires: secret(Date),
+  reauthOtp: secret(String),
+  reauthOtpExpires: secret(Date),
+  pendingEmail: secret(String),
+  pendingEmailOtp: secret(String),
+  pendingEmailExpires: secret(Date),
+  pendingPhone: secret(String),
+  pendingPhoneOtp: secret(String),
+  pendingPhoneExpires: secret(Date),
+  onboardingCompleted: { type: Boolean },
+  isSuspended: { type: Boolean },
+  isDeleted: { type: Boolean },
+  deletedAt: { type: Date }
 }, {
   timestamps: true,
   toJSON: {
     transform(doc, ret) {
       delete ret.embedding;
       delete ret.approvedSnapshot;
+      for (const field of ARTISAN_ACCOUNT_FIELDS) delete ret[field];
       if (Array.isArray(ret.catalogue)) {
         ret.catalogue = ret.catalogue.map(({ embedding, imageKey, ...item }) => item);
       }
@@ -67,6 +101,18 @@ ArtisanSchema.index({
   personOfContact: 'text',
   specialization: 'text',
   searchText: 'text'
+});
+
+// Login identity is unique among vendor accounts; imported listings may share contacts.
+ArtisanSchema.index({ email: 1 }, { unique: true, partialFilterExpression: { hasAccount: true } });
+ArtisanSchema.index(
+  { phoneNumber: 1 },
+  { unique: true, partialFilterExpression: { hasAccount: true, phoneNumber: { $type: 'string' } } }
+);
+
+// Vendor accounts behave like users for auth code (signToken, publicUser, guards).
+ArtisanSchema.virtual('role').get(function role() {
+  return 'artisan';
 });
 
 module.exports = mongoose.model('Artisan', ArtisanSchema);

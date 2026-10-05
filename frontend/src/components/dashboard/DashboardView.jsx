@@ -445,7 +445,10 @@ function ArtisanListingForm({ user, auth }) {
           </div>
           <div className="form-group">
             <label className="form-label">Phone Number</label>
-            <input type="text" className="form-control" value={profileForm.phoneNumber} onChange={setField('phoneNumber')} />
+            <input type="text" className="form-control" value={profileForm.phoneNumber} readOnly disabled />
+            <span style={{ fontSize: '11px', color: 'var(--color-text-secondary)', display: 'block', marginTop: '6px' }}>
+              Your login phone. Change it from account security settings.
+            </span>
           </div>
         </div>
 
@@ -468,7 +471,10 @@ function ArtisanListingForm({ user, auth }) {
         <div className="grid-container grid-2">
           <div className="form-group">
             <label className="form-label">Listing Email</label>
-            <input type="email" className="form-control" value={profileForm.email} onChange={setField('email')} />
+            <input type="email" className="form-control" value={profileForm.email} readOnly disabled />
+            <span style={{ fontSize: '11px', color: 'var(--color-text-secondary)', display: 'block', marginTop: '6px' }}>
+              Your login email. Change it from account security settings.
+            </span>
           </div>
           <div className="form-group">
             <label className="form-label">Instagram Handle</label>

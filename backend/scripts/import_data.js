@@ -31,8 +31,8 @@ async function run() {
     await mongoose.connect(MONGO_URI);
     console.log('Connected to MongoDB.');
 
-    // Clear existing ingested data
-    await Artisan.deleteMany({ userId: { $exists: false } });
+    // Clear existing ingested data; vendor login accounts must survive re-imports
+    await Artisan.deleteMany({ hasAccount: { $ne: true } });
     console.log('Cleared existing ingested artisans.');
 
     const statesDir = path.join(__dirname, '../../states');
