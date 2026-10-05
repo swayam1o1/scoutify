@@ -22,14 +22,16 @@ function getGenerativeModel() {
   return genAI ? genAI.getGenerativeModel({ model: GENERATION_MODEL }) : null;
 }
 
+// An exhausted quota does not recover within a retry window, so it is not worth waiting on.
 function isTransientError(err) {
-  return /\b(429|500|503)\b|overloaded|high demand/i.test(String(err?.message || ''));
+  const message = String(err?.message || '');
+  return /\b(429|500|503)\b|overloaded|high demand/i.test(message) && !/quota/i.test(message);
 }
 
-async function generateWithRetry(model, content, { retries = 2, delayMs = 1200 } = {}) {
+async function generateWithRetry(model, content, { retries = 2, delayMs = 1200, timeout } = {}) {
   for (let attempt = 0; ; attempt++) {
     try {
-      return await model.generateContent(content);
+      return await model.generateContent(content, { timeout });
     } catch (err) {
       if (attempt >= retries || !isTransientError(err)) throw err;
       await new Promise(resolve => setTimeout(resolve, delayMs * (attempt + 1)));
@@ -37,16 +39,18 @@ async function generateWithRetry(model, content, { retries = 2, delayMs = 1200 }
   }
 }
 
-async function embedText(text) {
+async function embedText(text, { timeout } = {}) {
   const genAI = getGenAI();
   if (!genAI || !String(text || '').trim()) return null;
   const model = genAI.getGenerativeModel({ model: EMBEDDING_MODEL });
-  const result = await model.embedContent(String(text));
+  const result = await model.embedContent(String(text), { timeout });
   return result.embedding.values;
 }
 
+const isVector = value => Array.isArray(value) || ArrayBuffer.isView(value);
+
 function cosineSimilarity(left, right) {
-  if (!Array.isArray(left) || !Array.isArray(right) || left.length !== right.length || left.length === 0) return 0;
+  if (!isVector(left) || !isVector(right) || left.length !== right.length || left.length === 0) return 0;
   let dot = 0;
   let leftMagnitude = 0;
   let rightMagnitude = 0;
