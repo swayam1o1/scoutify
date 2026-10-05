@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { authFetch } from '../api/client';
 import { emptyReauth } from '../components/auth/ReauthFields.jsx';
+import { showAlert } from '../components/ui/dialog';
 
 export function usePayments({ token, user, setUser, onRequireAuth, onUpgraded, requestReauthEmailCode }) {
   const [showPaymentModal, setShowPaymentModal] = useState(false);
@@ -30,7 +31,7 @@ export function usePayments({ token, user, setUser, onRequireAuth, onUpgraded, r
     try {
       if (requestReauthEmailCode) {
         await requestReauthEmailCode();
-        alert('If needed, check the backend console / email for the re-auth code.');
+        showAlert('If a re-auth code is needed, check your email (or the backend console in development).', { title: 'Check your email' });
       }
     } catch (err) {
       setReauthError('Could not send re-auth code.');
@@ -89,10 +90,10 @@ export function usePayments({ token, user, setUser, onRequireAuth, onUpgraded, r
             const verifyData = await verifyRes.json();
             if (verifyRes.ok) {
               setUser(verifyData.user);
-              alert('Payment verified! Your account is now upgraded to ' + pendingPlan.toUpperCase() + '.');
+              showAlert('Your account is now upgraded to ' + pendingPlan.toUpperCase() + '.', { title: 'Payment verified', tone: 'success' });
               onUpgraded?.();
             } else {
-              alert(verifyData.message || 'Verification failed.');
+              showAlert(verifyData.message || 'Verification failed.', { tone: 'error' });
             }
           },
           prefill: {
@@ -117,7 +118,7 @@ export function usePayments({ token, user, setUser, onRequireAuth, onUpgraded, r
 
   const completeSimulatedPayment = async (success) => {
     if (!success) {
-      alert('Payment failed/cancelled.');
+      showAlert('The payment was not completed.', { title: 'Payment cancelled', tone: 'error' });
       setShowPaymentModal(false);
       setVerifiedReauth(null);
       return;
@@ -139,16 +140,16 @@ export function usePayments({ token, user, setUser, onRequireAuth, onUpgraded, r
       const data = await res.json();
       if (res.ok) {
         setUser(data.user);
-        alert('Simulated payment successful! Upgraded to ' + activePaymentOrder.plan.toUpperCase());
+        showAlert('Upgraded to ' + activePaymentOrder.plan.toUpperCase() + '.', { title: 'Simulated payment successful', tone: 'success' });
         setShowPaymentModal(false);
         setVerifiedReauth(null);
         onUpgraded?.();
       } else {
-        alert(data.message || 'Payment upgrade verification failed.');
+        showAlert(data.message || 'Payment upgrade verification failed.', { tone: 'error' });
       }
     } catch (err) {
       console.error(err);
-      alert('Error updating subscription.');
+      showAlert('Error updating subscription.', { tone: 'error' });
     }
   };
 

@@ -5,19 +5,20 @@ const HttpError = require('../utils/httpError');
 const { sanitizeArtisanForUser } = require('../utils/sanitizeArtisan');
 const { PUBLIC_STATUS_FILTER } = require('../constants/artisan');
 const {
-  parseExtractedJson,
+  parseIntentResponse,
+  withQueryFallbacks,
   regexExtract,
   buildIntentPrompt,
-  buildSummaryPrompt,
-  buildSuggestionsPrompt,
   buildFallbackSuggestions,
-  parseSuggestionsJson,
   serviceOrConditions
 } = require('../utils/searchIntent');
 const { getGenerativeModel, generateWithRetry, embedText } = require('./geminiService');
 const { parseImageDataUrl } = require('../utils/imageUpload');
 const { asString, buildClientImagePrompt, parseClientImageJson, imagePart } = require('../utils/visualSearch');
 const { getClientPreferences } = require('../utils/clientPreferences');
+const { buildSearchTerms, searchTermsFilter, scoreSearchTerms } = require('../utils/searchTerms');
+const { locationFilter } = require('../utils/locations');
+const { BASIC_RESULT_LIMIT } = require('./searchService');
 const { JWT_SECRET, isSessionValid } = require('../middleware/auth');
 const {
   applyPreferences,
@@ -29,6 +30,46 @@ const {
 } = require('./semanticRankingService');
 
 const IMAGE_RESULT_LIMIT = 6;
+const TEXT_RESULT_LIMIT = 50;
+// Past these, search carries on with the regex intent / keyword matches instead of waiting.
+const INTENT_TIMEOUT_MS = 4000;
+const EMBED_TIMEOUT_MS = 3000;
+const RANK_TIMEOUT_MS = 5000;
+const VISION_TIMEOUT_MS = 10000;
+// Vector neighbours with no query word in their listing are only kept when clearly similar;
+// otherwise any vendor in the right city surfaces as a "match".
+const MIN_SEMANTIC_WITHOUT_KEYWORDS = 0.62;
+
+function extractedTerms(extracted) {
+  return buildSearchTerms(extracted.productType, extracted.service, extracted.material, extracted.synonyms || []);
+}
+
+// Listings that mention the brief's words (or synonyms) by name, specialization, products or
+// catalogue. Covers the many vendors that have no embedding yet.
+async function keywordMatches(extracted, terms, { excludeIds = [], limit }) {
+  const termsFilter = searchTermsFilter(terms);
+  if (!termsFilter || limit <= 0) return [];
+  const query = includeCity => {
+    const conditions = [PUBLIC_STATUS_FILTER, termsFilter, { _id: { $nin: excludeIds } }];
+    const locationCondition = includeCity && locationFilter(extracted.city);
+    if (locationCondition) conditions.push(locationCondition);
+    return { $and: conditions };
+  };
+  let docs = await Artisan.find(query(true)).select('-embedding -catalogue.embedding').lean();
+  if (docs.length === 0 && extracted.city && excludeIds.length === 0) {
+    docs = await Artisan.find(query(false)).select('-embedding -catalogue.embedding').lean();
+  }
+  return docs
+    .map(artisan => ({ artisan, relevance: scoreSearchTerms(artisan, terms) }))
+    .sort((left, right) => right.relevance.matchedWords - left.relevance.matchedWords || right.relevance.score - left.relevance.score)
+    .slice(0, limit)
+    .map(({ artisan, relevance }) => ({
+      ...sanitizeArtisanForUser(artisan),
+      matchedItems: keywordCatalogueMatches(artisan.catalogue, extracted),
+      matchPercentage: Math.min(90, 50 + relevance.matchedWords * 10 + relevance.score * 3),
+      aiReasoning: `Listing mentions ${extracted.productType || extracted.service || 'what you searched for'} in its ${relevance.score >= 3 ? 'specialization, products or catalogue' : 'name or description'}.`
+    }));
+}
 
 function catalogueOrConditions(extracted) {
   const terms = [extracted.productType, extracted.service, extracted.material, ...(extracted.synonyms || [])]
@@ -51,12 +92,11 @@ function buildDbQuery(extracted, { includeCity = true } = {}) {
   const conditions = [PUBLIC_STATUS_FILTER];
   const serviceFilter = serviceOrConditions(extracted);
   const catalogueFilter = catalogueOrConditions(extracted);
-  const orConditions = [...(serviceFilter?.$or || []), ...catalogueFilter];
+  const termsFilter = searchTermsFilter(extractedTerms(extracted));
+  const orConditions = [...(serviceFilter?.$or || []), ...catalogueFilter, ...(termsFilter?.$or || [])];
   if (orConditions.length) conditions.push({ $or: orConditions });
-  if (includeCity && extracted.city) {
-    const cityRegex = { $regex: escapeRegex(extracted.city.trim()), $options: 'i' };
-    conditions.push({ $or: [{ city: cityRegex }, { serviceArea: cityRegex }] });
-  }
+  const locationCondition = includeCity && locationFilter(extracted.city);
+  if (locationCondition) conditions.push(locationCondition);
   return { $and: conditions };
 }
 
@@ -75,39 +115,14 @@ function keywordCatalogueMatches(catalogue, extracted, limit = 3) {
     .map(item => toMatchedItem(item, null));
 }
 
-async function maybeSummarize(model, query, extracted, resultCount) {
-  if (!model) return null;
-  try {
-    const summaryResult = await model.generateContent(buildSummaryPrompt(query, extracted, resultCount));
-    const text = summaryResult.response.text().trim();
-    return text || null;
-  } catch (err) {
-    console.warn('AI search summary skipped:', err.message);
-    return null;
-  }
-}
-
-async function maybeSuggestions(model, query, extracted) {
-  const fallback = buildFallbackSuggestions(query, extracted);
-  if (!model) return fallback;
-  try {
-    const result = await model.generateContent(buildSuggestionsPrompt(query, extracted));
-    const parsed = parseSuggestionsJson(result.response.text().trim());
-    if (parsed.length > 0) return parsed;
-  } catch (err) {
-    console.warn('AI search suggestions skipped:', err.message);
-  }
-  return fallback;
-}
-
 function fallbackSummary(extracted, resultCount) {
   const bits = [];
-  if (extracted.city || extracted.location) bits.push(`near ${extracted.city || extracted.location}`);
   if (extracted.productType || extracted.service) bits.push(`for ${extracted.productType || extracted.service}`);
+  if (extracted.city || extracted.location) bits.push(`in ${extracted.city || extracted.location}`);
   if (extracted.useCase) bits.push(`(${extracted.useCase})`);
   if (extracted.material) bits.push(`material: ${extracted.material}`);
   if (extracted.budgetMax) bits.push(`budget up to ₹${Math.round(extracted.budgetMax).toLocaleString('en-IN')}`);
-  const focus = bits.length ? bits.join(' ') : 'your brief';
+  const focus = bits.length ? bits.join(' ') : 'for your brief';
   if (resultCount === 0) return `No verified vendors matched ${focus}. Try broadening the category or city.`;
   return `Found ${resultCount} verified vendor${resultCount === 1 ? '' : 's'} ${focus}. Rankings use AI interpretation of your prompt plus profile similarity.`;
 }
@@ -147,69 +162,92 @@ function validateTextQuery(query) {
  */
 async function textSearch(query, user) {
   const prefs = getClientPreferences(user);
-  const reply = payload => ({
-    payload: { ...payload, personalized: Boolean(prefs) },
-    search: {
-      searchType: 'ai_text',
-      query,
-      extracted: payload.extracted,
-      results: payload.results,
-      simulated: payload.simulated
-    }
-  });
+  const userPlan = user ? user.subscriptionPlan : 'basic';
+  const reply = payload => {
+    const totalResults = payload.results.length;
+    const results = userPlan === 'basic' ? payload.results.slice(0, BASIC_RESULT_LIMIT) : payload.results;
+    return {
+      payload: {
+        ...payload,
+        results,
+        totalResults,
+        paywallActive: userPlan === 'basic' && totalResults > BASIC_RESULT_LIMIT,
+        personalized: Boolean(prefs)
+      },
+      search: {
+        searchType: 'ai_text',
+        query,
+        extracted: payload.extracted,
+        results,
+        simulated: payload.simulated
+      }
+    };
+  };
 
   const model = getGenerativeModel();
   if (model) {
     try {
-      // Step 1: Structured intent extraction (SRS §5.1 + synonyms §5.2)
+      // Step 1: Structured intent extraction (SRS §5.1 + synonyms §5.2) and related prompts, in one call.
       let extracted;
+      let aiSuggestions = [];
       try {
-        const intentResult = await model.generateContent(buildIntentPrompt(query));
-        const intentText = intentResult.response.text().trim();
-        extracted = parseExtractedJson(intentText);
-      } catch (parseErr) {
-        console.warn('Gemini intent parse failed, using regex fallback:', parseErr.message);
+        const intentResult = await model.generateContent(buildIntentPrompt(query), { timeout: INTENT_TIMEOUT_MS });
+        ({ extracted, suggestions: aiSuggestions } = parseIntentResponse(intentResult.response.text().trim(), query));
+      } catch (intentError) {
+        console.warn('Gemini intent unavailable, using regex fallback:', intentError.message);
         extracted = regexExtract(query);
       }
+      extracted = withQueryFallbacks(extracted, query);
+      const suggestions = aiSuggestions.length ? aiSuggestions : buildFallbackSuggestions(query, extracted);
 
       const semanticQuery = extracted.expandedQuery || query;
+      const terms = extractedTerms(extracted);
 
       // Prefer vector ranking when embeddings exist (vendor profiles + catalogue items)
+      let semanticResults = [];
       try {
-        const queryEmbedding = await embedText(semanticQuery);
-        const semanticResults = await semanticSearch(queryEmbedding, semanticQuery, {
-          city: extracted.city,
-          extracted,
-          limit: 5,
-          prefs
-        });
-
-        if (semanticResults.length > 0) {
-          const results = semanticResults.map(artisan => ({
-            ...sanitizeArtisanForUser(artisan),
-            matchPercentage: Math.max(0, Math.min(99, Math.round(artisan.combinedScore * 100))),
-            aiReasoning: (artisan.matchedItems.length && artisan.itemScore >= artisan.semanticScore
-              ? `Catalogue product "${artisan.matchedItems[0].title}" is a ${Math.round(artisan.itemScore * 100)}% semantic match`
-              : `Ranked from ${Math.round(artisan.semanticScore * 100)}% semantic similarity`)
-              + (extracted.material || extracted.useCase
-                ? ` aligned with ${[extracted.material, extracted.useCase, extracted.designPreference].filter(Boolean).join(', ')}.`
-                : ` and ${Math.round(artisan.nameScore * 100)}% name similarity.`)
-          }));
-          const summary = (await maybeSummarize(model, query, extracted, results.length))
-            || fallbackSummary(extracted, results.length);
-          const suggestions = await maybeSuggestions(model, query, extracted);
-
-          return reply({
-            results,
+        const queryEmbedding = await embedText(semanticQuery, { timeout: EMBED_TIMEOUT_MS });
+        if (queryEmbedding) {
+          semanticResults = (await semanticSearch(queryEmbedding, semanticQuery, {
+            city: extracted.city,
             extracted,
-            summary,
-            suggestions,
-            semantic: true,
-            simulated: false
-          });
+            limit: TEXT_RESULT_LIMIT,
+            prefs
+          })).filter(artisan => terms.length === 0
+            || scoreSearchTerms(artisan, terms).matchedWords > 0
+            || artisan.semanticScore >= MIN_SEMANTIC_WITHOUT_KEYWORDS);
         }
       } catch (embeddingError) {
-        console.warn('Semantic ranking unavailable, continuing with AI ranking:', embeddingError.message);
+        console.warn('Semantic ranking unavailable, using keyword matches:', embeddingError.message);
+      }
+
+      const keywordResults = await keywordMatches(extracted, terms, {
+        excludeIds: semanticResults.map(artisan => artisan._id),
+        limit: TEXT_RESULT_LIMIT - semanticResults.length
+      });
+
+      if (semanticResults.length > 0 || keywordResults.length > 0) {
+        const semanticHits = semanticResults.map(artisan => ({
+          ...sanitizeArtisanForUser(artisan),
+          matchPercentage: Math.max(0, Math.min(99, Math.round(artisan.combinedScore * 100))),
+          aiReasoning: (artisan.matchedItems.length && artisan.itemScore >= artisan.semanticScore
+            ? `Catalogue product "${artisan.matchedItems[0].title}" is a ${Math.round(artisan.itemScore * 100)}% semantic match`
+            : `Ranked from ${Math.round(artisan.semanticScore * 100)}% semantic similarity`)
+            + (extracted.material || extracted.useCase
+              ? ` aligned with ${[extracted.material, extracted.useCase, extracted.designPreference].filter(Boolean).join(', ')}.`
+              : ` and ${Math.round(artisan.nameScore * 100)}% name similarity.`)
+        }));
+        const results = [...semanticHits, ...applyPreferences(keywordResults, prefs, extracted)]
+          .sort((left, right) => right.matchPercentage - left.matchPercentage);
+
+        return reply({
+          results,
+          extracted,
+          summary: fallbackSummary(extracted, results.length),
+          suggestions,
+          semantic: semanticHits.length > 0,
+          simulated: false
+        });
       }
 
       // Step 2: DB candidates via service synonyms + city
@@ -223,12 +261,10 @@ async function textSearch(query, user) {
       }
 
       if (candidates.length === 0) {
-        const summary = fallbackSummary(extracted, 0);
-        const suggestions = await maybeSuggestions(model, query, extracted);
         return reply({
           results: [],
           extracted,
-          summary,
+          summary: fallbackSummary(extracted, 0),
           suggestions,
           simulated: false,
           message: 'No matching artisans found for the extracted keywords.'
@@ -261,15 +297,13 @@ Select up to 5 best matches. Prefer vendors that fit use-case, product/material,
 Return ONLY a JSON array: [{"id":"artisan_id","matchPercentage":95,"reasoning":"one sentence"}]
 No markdown.`;
 
-      const rankResult = await model.generateContent(rankPrompt);
-      const rankText = rankResult.response.text().trim();
-
       let matchMetadata = [];
       try {
-        const cleanRankStr = rankText.replace(/```json/g, '').replace(/```/g, '').trim();
+        const rankResult = await model.generateContent(rankPrompt, { timeout: RANK_TIMEOUT_MS });
+        const cleanRankStr = rankResult.response.text().trim().replace(/```json/g, '').replace(/```/g, '').trim();
         matchMetadata = JSON.parse(cleanRankStr);
-      } catch (e) {
-        console.warn('Gemini JSON parse failed for ranking matching:', rankText);
+      } catch (rankError) {
+        console.warn('Gemini ranking unavailable, using database order:', rankError.message);
       }
 
       const results = [];
@@ -296,14 +330,10 @@ No markdown.`;
         });
       }
 
-      const summary = (await maybeSummarize(model, query, extracted, results.length))
-        || fallbackSummary(extracted, results.length);
-      const suggestions = await maybeSuggestions(model, query, extracted);
-
       return reply({
         results: applyPreferences(results, prefs, extracted),
         extracted,
-        summary,
+        summary: fallbackSummary(extracted, results.length),
         suggestions,
         simulated: false
       });
@@ -314,12 +344,12 @@ No markdown.`;
 
   // --- Offline / no-key fallback ---
   const extracted = regexExtract(query);
-  let candidates = await Artisan.find(buildDbQuery(extracted)).select('-embedding -catalogue.embedding').limit(5);
+  let candidates = await Artisan.find(buildDbQuery(extracted)).select('-embedding -catalogue.embedding').limit(TEXT_RESULT_LIMIT);
   if (candidates.length === 0 && extracted.service) {
     candidates = await Artisan.find({
       ...PUBLIC_STATUS_FILTER,
       specialization: { $regex: escapeRegex(extracted.service), $options: 'i' }
-    }).select('-embedding -catalogue.embedding').limit(5);
+    }).select('-embedding -catalogue.embedding').limit(TEXT_RESULT_LIMIT);
   }
 
   const mockReasonings = [
@@ -331,11 +361,9 @@ No markdown.`;
   const results = applyPreferences(candidates.map((c, idx) => ({
     ...sanitizeArtisanForUser(c),
     matchedItems: keywordCatalogueMatches(c.catalogue, extracted),
-    matchPercentage: 92 - idx * 6,
+    matchPercentage: Math.max(40, 92 - idx * 6),
     aiReasoning: mockReasonings[idx] || `Verified specialist in ${c.city}.`
   })), prefs, extracted);
-
-  await new Promise(resolve => setTimeout(resolve, 800));
 
   return reply({
     results,
@@ -358,18 +386,18 @@ async function imageSearch({ image: imageDataUrl, note: rawNote }, user) {
 
   const model = getGenerativeModel();
   let extracted = null;
+  let aiSuggestions = [];
   if (model) {
     try {
-      const visionResult = await generateWithRetry(model, [buildClientImagePrompt(note), imagePart(image)]);
-      extracted = parseClientImageJson(visionResult.response.text().trim());
+      const visionResult = await generateWithRetry(model, [buildClientImagePrompt(note), imagePart(image)], {
+        retries: 1,
+        timeout: VISION_TIMEOUT_MS
+      });
+      ({ extracted, suggestions: aiSuggestions } = parseClientImageJson(visionResult.response.text().trim()));
     } catch (err) {
       console.warn('Gemini image analysis failed:', err.message);
     }
   }
-
-  // If the vision call failed (quota / overload), further Gemini calls would almost
-  // certainly fail too and only burn more quota, so summary and suggestions fall back.
-  const followUpModel = extracted ? model : null;
 
   if (!extracted) {
     if (!note) {
@@ -377,6 +405,7 @@ async function imageSearch({ image: imageDataUrl, note: rawNote }, user) {
     }
     extracted = regexExtract(note);
   }
+  if (note) extracted = withQueryFallbacks(extracted, note);
 
   const briefForAi = note
     ? `Photo of ${extracted.productType || 'an item'} — client note: ${note}`
@@ -384,7 +413,7 @@ async function imageSearch({ image: imageDataUrl, note: rawNote }, user) {
 
   let results = [];
   try {
-    const queryEmbedding = await embedText(extracted.expandedQuery || briefForAi);
+    const queryEmbedding = await embedText(extracted.expandedQuery || briefForAi, { timeout: EMBED_TIMEOUT_MS });
     if (queryEmbedding) {
       let semanticResults = await semanticSearch(queryEmbedding, extracted.expandedQuery, {
         city: extracted.city,
@@ -438,16 +467,12 @@ async function imageSearch({ image: imageDataUrl, note: rawNote }, user) {
     }), prefs, extracted));
   }
 
-  const summary = (await maybeSummarize(followUpModel, briefForAi, extracted, results.length))
-    || fallbackSummary(extracted, results.length);
-  const suggestions = await maybeSuggestions(followUpModel, briefForAi, extracted);
-
   return {
     payload: {
       results,
       extracted,
-      summary,
-      suggestions,
+      summary: fallbackSummary(extracted, results.length),
+      suggestions: aiSuggestions.length ? aiSuggestions : buildFallbackSuggestions(briefForAi, extracted),
       imageSearch: true,
       personalized: Boolean(prefs),
       simulated: !model

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { authFetch } from '../api/client';
 import { createSearchModeState } from '../utils/searchState';
+import { showAlert } from '../components/ui/dialog';
 
 export function useSearch({ token, user, onRequireAuth, demoLogin }) {
   const [service, setService] = useState('');
@@ -143,8 +144,8 @@ export function useSearch({ token, user, onRequireAuth, demoLogin }) {
 
       updateSearchMode('ai', {
         results: data.results || [],
-        totalResults: data.results?.length || 0,
-        paywallActive: false,
+        totalResults: data.totalResults ?? data.results?.length ?? 0,
+        paywallActive: data.paywallActive || false,
         extracted: data.extracted || null,
         summary: data.summary || null,
         suggestions: Array.isArray(data.suggestions) ? data.suggestions : [],
@@ -218,7 +219,7 @@ export function useSearch({ token, user, onRequireAuth, demoLogin }) {
       if (result.ok) {
         currentToken = result.data.token;
       } else {
-        alert('Demo login failed.');
+        showAlert('Demo login failed.', { tone: 'error' });
         return;
       }
     }
@@ -246,8 +247,8 @@ export function useSearch({ token, user, onRequireAuth, demoLogin }) {
       if (!isLatestSearchRequest('ai', requestId)) return;
       updateSearchMode('ai', {
         results: data.results || [],
-        totalResults: data.results?.length || 0,
-        paywallActive: false,
+        totalResults: data.totalResults ?? data.results?.length ?? 0,
+        paywallActive: data.paywallActive || false,
         extracted: data.extracted || null,
         summary: data.summary || null,
         suggestions: Array.isArray(data.suggestions) ? data.suggestions : [],

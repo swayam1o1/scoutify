@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { authFetch } from '../api/client';
+import { showAlert, showConfirm } from '../components/ui/dialog';
 
 export function useBoards({ token }) {
   // Project Boards state
@@ -45,29 +46,35 @@ export function useBoards({ token }) {
     }
   }, [token]);
 
-  const createBoard = async (name, autoSaveVendorId = null) => {
-    if (!name || !name.trim()) return;
+  // Resolves { ok, message }. `quiet` lets a caller (e.g. the create modal) show errors inline.
+  const createBoard = async (name, autoSaveVendorId = null, { quiet = false } = {}) => {
+    const fail = (message) => {
+      if (!quiet) showAlert(message, { tone: 'error' });
+      return { ok: false, message };
+    };
+
+    if (!name || !name.trim()) return fail('Please enter a board name first.');
     try {
       const res = await authFetch('/boards', { token, method: 'POST', body: { name: name.trim() } });
       const data = await res.json();
-      if (res.ok) {
-        setBoards(data.boards || []);
-        setNewBoardName('');
-        setQuickNewBoardName('');
+      if (!res.ok) return fail(data.message || 'Failed to create board.');
 
-        if (autoSaveVendorId) {
-          const newBoard = data.boards.find(b => b.name.toLowerCase() === name.trim().toLowerCase());
-          if (newBoard) {
-            await saveVendorToBoard(newBoard._id, autoSaveVendorId);
-          }
-        } else {
-          alert('Project board created successfully!');
+      setBoards(data.boards || []);
+      setNewBoardName('');
+      setQuickNewBoardName('');
+
+      if (autoSaveVendorId) {
+        const newBoard = data.boards.find(b => b.name.toLowerCase() === name.trim().toLowerCase());
+        if (newBoard) {
+          await saveVendorToBoard(newBoard._id, autoSaveVendorId);
         }
       } else {
-        alert(data.message || 'Failed to create board.');
+        showAlert(`"${name.trim()}" is ready. Open it to start saving vendors.`, { title: 'Board created', tone: 'success' });
       }
+      return { ok: true };
     } catch (err) {
       console.error(err);
+      return fail('Could not reach the server. Please try again.');
     }
   };
 
@@ -82,9 +89,9 @@ export function useBoards({ token }) {
       if (res.ok) {
         setBoards(data.boards || []);
         setActiveSaveDropdownId(null);
-        alert('Vendor saved to project board!');
+        showAlert('Vendor saved to project board!', { tone: 'success' });
       } else {
-        alert(data.message || 'Failed to save vendor.');
+        showAlert(data.message || 'Failed to save vendor.', { tone: 'error' });
       }
     } catch (err) {
       console.error(err);
@@ -92,14 +99,15 @@ export function useBoards({ token }) {
   };
 
   const removeVendorFromBoard = async (boardId, vendorId) => {
-    if (!confirm('Are you sure you want to remove this vendor from the board?')) return;
+    const confirmed = await showConfirm('Remove this vendor from the board?', { title: 'Remove vendor', confirmLabel: 'Remove', danger: true });
+    if (!confirmed) return;
     try {
       const res = await authFetch(`/boards/${boardId}/vendors/${vendorId}`, { token, method: 'DELETE' });
       const data = await res.json();
       if (res.ok) {
         setBoards(data.boards || []);
       } else {
-        alert(data.message || 'Failed to remove vendor.');
+        showAlert(data.message || 'Failed to remove vendor.', { tone: 'error' });
       }
     } catch (err) {
       console.error(err);
@@ -107,7 +115,8 @@ export function useBoards({ token }) {
   };
 
   const deleteBoard = async (boardId) => {
-    if (!confirm('Are you sure you want to delete this project board?')) return;
+    const confirmed = await showConfirm('This board and its saved vendors list will be deleted.', { title: 'Delete project board?', confirmLabel: 'Delete', danger: true });
+    if (!confirmed) return;
     try {
       const res = await authFetch(`/boards/${boardId}`, { token, method: 'DELETE' });
       const data = await res.json();
@@ -117,7 +126,7 @@ export function useBoards({ token }) {
           setActiveBoardId(null);
         }
       } else {
-        alert(data.message || 'Failed to delete board.');
+        showAlert(data.message || 'Failed to delete board.', { tone: 'error' });
       }
     } catch (err) {
       console.error(err);
@@ -176,7 +185,7 @@ export function useBoards({ token }) {
   const handleBoardAiSearch = async (e) => {
     if (e) e.preventDefault();
     if (!boardSearchAiQuery.trim()) return;
-    if (!token) { alert('Please log in to use AI Sourcing.'); return; }
+    if (!token) { showAlert('Please log in to use AI Sourcing.'); return; }
     setBoardSearching(true);
     setBoardSearchResults([]);
     try {

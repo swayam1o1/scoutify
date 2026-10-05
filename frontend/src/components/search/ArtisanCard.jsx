@@ -1,6 +1,7 @@
 import { Globe, Lock, Mail, MapPin, Phone, User as UserIcon } from 'lucide-react';
 import { Instagram } from '../../icons/Instagram';
 import { assetUrl } from '../../api/client';
+import { vendorWhatsappUrl } from '../../utils/whatsapp';
 
 export function ArtisanCard({
   artisan,
@@ -123,7 +124,7 @@ export function ArtisanCard({
 
       {contactUnlocked && artisan.phoneNumber ? (
         <a
-          href={`https://wa.me/91${artisan.phoneNumber.split('/')[0].replace(/[^0-9]/g, '')}?text=Hi%20${encodeURIComponent(artisan.personOfContact || artisan.companyName)},%20I%20found%20your%20verified%20profile%20on%20Scoutify%20and%20would%20like%20to%20discuss%20a%20project%20in%20${encodeURIComponent(artisan.city)}.`}
+          href={vendorWhatsappUrl(artisan)}
           target="_blank"
           rel="noopener noreferrer"
           className="btn btn-secondary"

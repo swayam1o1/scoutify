@@ -3,6 +3,7 @@ import { CheckCircle, ImagePlus, MapPin, Search, ShieldCheck, Sparkles, X } from
 import { ArtisanCard } from './ArtisanCard';
 import { PaywallSection } from './PaywallSection';
 import { fileToResizedDataUrl, IMAGE_ACCEPT } from '../../utils/image';
+import { showAlert } from '../ui/dialog';
 
 const AI_LOADER_STEPS = [
   'Analyzing project requirements...',
@@ -73,7 +74,7 @@ export function SearchView({ search, boards, user, onRequireAuth, onNavigate }) 
     try {
       setAiImage(await fileToResizedDataUrl(file));
     } catch (err) {
-      alert(err.message);
+      showAlert(err.message, { tone: 'error' });
     }
   };
 

@@ -2,6 +2,7 @@ const Artisan = require('../models/Artisan');
 const { PUBLIC_STATUS_FILTER } = require('../constants/artisan');
 const { cosineSimilarity } = require('./geminiService');
 const { scorePreferences } = require('../utils/clientPreferences');
+const { locationFilter } = require('../utils/locations');
 
 const MIN_ITEM_SCORE = 0.55;
 const MIN_PROFILE_IMAGE_SCORE = 0.55;
@@ -132,6 +133,37 @@ function stripEmbeddings(artisan) {
   return { ...rest, catalogue: (artisan.catalogue || []).map(({ embedding: _e, ...item }) => item) };
 }
 
+// Vectors are large (3072 numbers per profile and per catalogue item), so they stay in memory
+// keyed by listing id and reloaded only when the listing's updatedAt changes.
+const vectorCache = new Map();
+
+const updatedStamp = artisan => new Date(artisan.updatedAt || 0).getTime();
+const toVector = values => (values?.length ? Float32Array.from(values) : null);
+
+async function withVectors(candidates) {
+  const stale = candidates.filter(artisan => vectorCache.get(String(artisan._id))?.updatedAt !== updatedStamp(artisan));
+  if (stale.length) {
+    const docs = await Artisan.find({ _id: { $in: stale.map(artisan => artisan._id) } })
+      .select('embedding catalogue._id catalogue.embedding updatedAt')
+      .lean();
+    for (const doc of docs) {
+      vectorCache.set(String(doc._id), {
+        updatedAt: updatedStamp(doc),
+        profile: toVector(doc.embedding),
+        items: new Map((doc.catalogue || []).map(item => [String(item._id), toVector(item.embedding)]))
+      });
+    }
+  }
+  return candidates.map(artisan => {
+    const vectors = vectorCache.get(String(artisan._id));
+    return {
+      ...artisan,
+      embedding: vectors?.profile,
+      catalogue: (artisan.catalogue || []).map(item => ({ ...item, embedding: vectors?.items.get(String(item._id)) }))
+    };
+  });
+}
+
 // mode 'text': profile + name similarity lead; mode 'image': catalogue photos lead.
 async function semanticSearch(queryEmbedding, queryText, { city, extracted, limit = 3, mode = 'text', prefs = null }) {
   const filter = {
@@ -141,8 +173,11 @@ async function semanticSearch(queryEmbedding, queryText, { city, extracted, limi
       { 'catalogue.embedding.0': { $exists: true } }
     ]
   };
-  if (city) filter.city = { $regex: escapeRegex(city.trim()), $options: 'i' };
-  const candidates = await Artisan.find(filter).lean();
+  const locationCondition = locationFilter(city);
+  const listings = await Artisan.find(locationCondition ? { $and: [filter, locationCondition] } : filter)
+    .select('-embedding -catalogue.embedding')
+    .lean();
+  const candidates = await withVectors(listings);
 
   return candidates.map(artisan => {
     const profileScore = cosineSimilarity(artisan.embedding, queryEmbedding);

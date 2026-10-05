@@ -39,13 +39,13 @@ function App() {
         setCurrentView('boards');
         boardsApi?.setActiveBoardId(null);
         syncUrlForView('boards', { replace });
-        return;
-      }
+      return;
+    }
       boardsApi?.setActiveBoardId(id);
       setCurrentView('board-details');
       syncUrlForView('board-details', { boardId: id, replace });
-      return;
-    }
+        return;
+      }
 
     if (view === 'boards') {
       boardsApi?.setActiveBoardId(null);
@@ -131,8 +131,8 @@ function App() {
     if (view !== 'board-details' || !boardId || !auth.token) return;
     if (boards.activeBoardId === boardId) {
       if (currentView !== 'board-details') setCurrentView('board-details');
-      return;
-    }
+          return;
+        }
     const exists = boards.boards.some(b => String(b._id) === String(boardId));
     if (exists) {
       boards.setActiveBoardId(boardId);
@@ -144,7 +144,7 @@ function App() {
   useEffect(() => {
     if (!isAuthRequiredView(currentView)) return;
     if (auth.user || auth.token) return;
-    setCurrentView('search');
+              setCurrentView('search');
     syncUrlForView('search', { replace: true });
     auth.openAuthModal?.('login');
   }, [currentView, auth.user, auth.token]);

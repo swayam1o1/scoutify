@@ -2,7 +2,7 @@
  * Image-based matching: Gemini describes a photo into attributes, which are
  * embedded as text and compared against vendor catalogue item embeddings.
  */
-const { cleanJsonText, normalizeExtracted } = require('./searchIntent');
+const { cleanJsonText, normalizeExtracted, cleanSuggestions, SUGGESTIONS_FIELD } = require('./searchIntent');
 
 function asString(value, max = 200) {
   if (value == null) return '';
@@ -30,7 +30,8 @@ Return ONLY a JSON object (empty string or null when unknown):
   "colors": ["dominant colours"],
   "synonyms": ["related product and vendor category terms"],
   "visualDescription": "2 sentences describing the item: shape, construction, finish, notable details",
-  "expandedQuery": "single string combining the item, material, style, category and synonyms"
+  "expandedQuery": "single string combining the item, material, style, category and synonyms",
+  ${SUGGESTIONS_FIELD}
 }
 Do not wrap in markdown. No commentary.`;
 }
@@ -56,6 +57,7 @@ Return ONLY a JSON object:
 Prefer the vendor's details when they are provided. Do not wrap in markdown.`;
 }
 
+/** Photo analysis response: { extracted, suggestions }. */
 function parseClientImageJson(text) {
   const raw = JSON.parse(cleanJsonText(text));
   const extracted = normalizeExtracted(raw);
@@ -64,7 +66,7 @@ function parseClientImageJson(text) {
   if (extracted.visualDescription) {
     extracted.expandedQuery = `${extracted.expandedQuery} ${extracted.visualDescription}`.trim();
   }
-  return extracted;
+  return { extracted, suggestions: cleanSuggestions(raw.suggestions) };
 }
 
 function parseCatalogueImageJson(text) {

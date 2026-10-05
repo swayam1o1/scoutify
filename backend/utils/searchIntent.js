@@ -1,6 +1,12 @@
 /**
  * SRS §5.1 / §5.2 — normalize Gemini (or regex) extraction from NL search prompts.
  */
+const { findLocation } = require('./locations');
+
+// Asked for in the same call as the intent / photo analysis, so a search costs one Gemini request.
+const SUGGESTIONS_FIELD = `"suggestions": ["5 related short search prompts the client might try next. Vary city, material, use-case, design style or nearby categories. Never mention price, budget, cost or amounts. Do not repeat the brief."]`;
+
+const BRIEF_FILLER = /\b(find|search|show|get|give|me|my|i|we|our|need|needs|want|looking|for|a|an|the|in|at|on|near|around|across|within|of|to|from|and|or|with|some|any|all|good|best|top|list|please|vendors?|suppliers?|compan(?:y|ies)|services?|providers?|india)\b/g;
 
 function cleanJsonText(text = '') {
   return String(text).replace(/```json/gi, '').replace(/```/g, '').trim();
@@ -67,8 +73,29 @@ function normalizeExtracted(raw = {}) {
   return extracted;
 }
 
-function parseExtractedJson(text) {
-  return normalizeExtracted(JSON.parse(cleanJsonText(text)));
+/** Intent response: { extracted, suggestions }. */
+function parseIntentResponse(text, query) {
+  const raw = JSON.parse(cleanJsonText(text));
+  return { extracted: normalizeExtracted(raw), suggestions: cleanSuggestions(raw.suggestions, query) };
+}
+
+/** Gemini sometimes returns blank fields; keep the place and service the brief names outright. */
+function withQueryFallbacks(extracted, query) {
+  const fallback = regexExtract(query);
+  const merged = { ...extracted };
+  if (!merged.city && fallback.city) {
+    merged.city = fallback.city;
+    merged.location = merged.location || fallback.city;
+  }
+  if (!merged.service && !merged.productType && fallback.service) {
+    merged.service = fallback.service;
+    merged.productType = fallback.productType;
+    merged.synonyms = merged.synonyms?.length ? merged.synonyms : fallback.synonyms;
+  }
+  if (merged.city !== extracted.city || merged.service !== extracted.service || !merged.expandedQuery) {
+    merged.expandedQuery = buildExpandedQuery(merged);
+  }
+  return merged;
 }
 
 /** Lightweight offline fallback when Gemini is unavailable. */
@@ -76,23 +103,27 @@ function regexExtract(query) {
   const q = String(query || '');
   const lower = q.toLowerCase();
 
+  let city = findLocation(q);
+  if (/bengaluru/i.test(city)) city = 'Bangalore';
+
   let service = '';
   const serviceMatch = q.match(
-    /(architectural|false ceiling|interior\s*design(?:ing)?|painting|contracting|furniture|woodwork|carpentry|marble|tiling|electrical|plumbing)/i
+    /(architect\w*|false ceiling|interior\s*design(?:ing|er)?|painting|contracting|furniture|woodwork|carpentry|marble|tiling|electrical|plumbing)/i
   );
   if (serviceMatch) service = serviceMatch[0];
   else if (lower.includes('ceiling')) service = 'False Ceiling';
   else if (lower.includes('paint')) service = 'Painting';
   else if (lower.includes('interior')) service = 'Interior Designing';
   else if (lower.includes('furniture') || lower.includes('wooden')) service = 'Furniture';
-
-  let city = '';
-  const cityMatch = q.match(
-    /(bangalore|bengaluru|tirupati|delhi|mumbai|pune|lucknow|kanpur|ghaziabad|noida|hyderabad|chennai|kolkata|jaipur|ahmedabad)/i
-  );
-  if (cityMatch) {
-    city = cityMatch[0];
-    if (/bengaluru/i.test(city)) city = 'Bangalore';
+  else {
+    // Whatever the brief names besides the place, e.g. "landscaping in Goa" → "landscaping".
+    service = lower
+      .replace(city.toLowerCase(), ' ')
+      .replace(/[^a-z ]+/g, ' ')
+      .replace(BRIEF_FILLER, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 60);
   }
 
   let material = '';
@@ -171,36 +202,11 @@ Return ONLY a JSON object with these keys (use empty string or null when unknown
   "budgetCurrency": "INR",
   "service": "best matching vendor category/service keyword for DB filter",
   "synonyms": ["related category terms"],
-  "expandedQuery": "single string combining key terms + synonyms for embedding search"
+  "expandedQuery": "single string combining key terms + synonyms for embedding search",
+  ${SUGGESTIONS_FIELD}
 }
 
 Do not wrap in markdown. No commentary.`;
-}
-
-function buildSummaryPrompt(query, extracted, resultCount) {
-  return `Write one short paragraph (max 2 sentences) summarizing this Scoutify vendor search for the client.
-Mention location, category/use-case, and any budget/material if present. State that ${resultCount} matching vendor(s) were found (or none).
-Be factual; do not invent vendor names.
-
-Brief: """${query}"""
-Extracted: ${JSON.stringify(extracted)}
-
-Return plain text only.`;
-}
-
-function buildSuggestionsPrompt(query, extracted) {
-  return `A Scoutify user searched vendors with this brief:
-"""${query}"""
-
-Extracted attributes: ${JSON.stringify(extracted)}
-
-Suggest 5 related natural-language search prompts they might try next.
-Vary city, material, use-case, design style, or nearby categories. Keep each prompt one short sentence.
-Never mention price, budget, cost, affordability, or amounts (e.g. "under 10 lakhs", "₹", "cheap").
-Do not repeat the original brief.
-
-Return ONLY a JSON array of strings, e.g. ["prompt one", "prompt two"].
-No markdown.`;
 }
 
 const PRICE_PATTERN = /(₹|\brs\.?\s*\d|\binr\b|\blakh|\blac\b|\bcrore|\bbudget|\bafford|\bcheap|\bprice|\bcost|\bunder\s+\d|\bbelow\s+\d|\bwithin\s+\d+\s*(k\b|lakh|lac|crore))/i;
@@ -229,11 +235,13 @@ function buildFallbackSuggestions(query, extracted = {}) {
   return [...new Set(suggestions.map(s => s.trim()).filter(s => s && s.toLowerCase() !== original && !hasPriceMention(s)))].slice(0, 5);
 }
 
-function parseSuggestionsJson(text) {
-  const clean = cleanJsonText(text);
-  const parsed = JSON.parse(clean);
-  if (!Array.isArray(parsed)) return [];
-  return parsed.map(asString).filter(s => s && !hasPriceMention(s)).slice(0, 6);
+/** Related prompts returned alongside the intent / photo analysis, minus price talk and the brief itself. */
+function cleanSuggestions(value, brief = '') {
+  if (!Array.isArray(value)) return [];
+  const original = String(brief).trim().toLowerCase();
+  return [...new Set(value.map(asString))]
+    .filter(s => s && s.toLowerCase() !== original && !hasPriceMention(s))
+    .slice(0, 6);
 }
 
 function serviceOrConditions(extracted) {
@@ -261,13 +269,13 @@ function serviceOrConditions(extracted) {
 
 module.exports = {
   normalizeExtracted,
-  parseExtractedJson,
+  parseIntentResponse,
+  withQueryFallbacks,
   regexExtract,
   buildIntentPrompt,
-  buildSummaryPrompt,
-  buildSuggestionsPrompt,
   buildFallbackSuggestions,
-  parseSuggestionsJson,
+  cleanSuggestions,
+  SUGGESTIONS_FIELD,
   buildExpandedQuery,
   serviceOrConditions,
   cleanJsonText

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { authFetch } from '../api/client';
+import { showAlert, showConfirm } from '../components/ui/dialog';
 
 export function useAuth({ onLogout, onLoginSuccess } = {}) {
   // User auth state
@@ -604,7 +605,7 @@ export function useAuth({ onLogout, onLoginSuccess } = {}) {
         setAuthError('');
         setAuthSuccess('');
       } else {
-        alert(data.message || 'Demo login failed.');
+        showAlert(data.message || 'Demo login failed.', { tone: 'error' });
       }
     } catch (err) {
       console.error(err);
@@ -879,14 +880,15 @@ export function useAuth({ onLogout, onLoginSuccess } = {}) {
       showAccountToast('error', 'Type DELETE to confirm account deletion.');
       return;
     }
-    if (!confirm(
-      'Permanently delete your Scoutify account?\n\n' +
+    const confirmed = await showConfirm(
       '• Personal data will be anonymized\n' +
       '• Public vendor profile will leave search\n' +
       '• Boards and portfolio links will be removed\n' +
       '• Paid plan will be set to basic\n' +
-      '• You will be signed out everywhere'
-    )) return;
+      '• You will be signed out everywhere',
+      { title: 'Permanently delete your Scoutify account?', confirmLabel: 'Delete account', danger: true }
+    );
+    if (!confirmed) return;
 
     clearAccountFeedback();
     setAccountBusy(true);

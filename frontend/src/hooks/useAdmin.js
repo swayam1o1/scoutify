@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { authFetch } from '../api/client';
+import { showConfirm } from '../components/ui/dialog';
 
 const EMPTY_VENDOR = {
   companyName: '',
@@ -138,7 +139,12 @@ export function useAdmin({ token, user, applySession }) {
   };
 
   const deleteVendor = async (vendorId) => {
-    if (!confirm('Delete this vendor listing permanently?')) return false;
+    const confirmed = await showConfirm('The listing, its catalogue photos and notifications will be removed. This cannot be undone.', {
+      title: 'Delete vendor permanently?',
+      confirmLabel: 'Delete',
+      danger: true
+    });
+    if (!confirmed) return false;
     const done = await runAction(`/vendors/${vendorId}`, { method: 'DELETE' }, 'Vendor deleted.');
     if (done && vendorDetail?.vendor?._id === vendorId) setVendorDetail(null);
     return done;
@@ -153,8 +159,13 @@ export function useAdmin({ token, user, applySession }) {
   const setConsumerSuspended = (consumerId, isSuspended) =>
     runAction(`/consumers/${consumerId}`, { method: 'PATCH', body: { isSuspended } }, 'Consumer updated.');
 
-  const deleteConsumer = (consumerId) => {
-    if (!confirm('Delete this consumer account?')) return Promise.resolve(false);
+  const deleteConsumer = async (consumerId) => {
+    const confirmed = await showConfirm('The consumer will be soft-deleted and signed out.', {
+      title: 'Delete this consumer account?',
+      confirmLabel: 'Delete',
+      danger: true
+    });
+    if (!confirmed) return false;
     return runAction(`/consumers/${consumerId}`, { method: 'DELETE' }, 'Consumer deleted.');
   };
 
