@@ -310,25 +310,47 @@ async function verifyLogin2fa({ email: rawEmail, code }) {
   return sessionPayload('2FA verified successfully.', user);
 }
 
-// 5. GOOGLE LOGIN — prefers verified Google ID token (credential); falls back to mocked payload in dev.
-async function googleLogin({ name, email, googleId, role, credential }) {
-  if (credential) {
-    const googleRes = await fetch(`https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(credential)}`);
-    if (!googleRes.ok) {
-      throw new HttpError(401, 'Invalid Google credential.');
-    }
-    const payload = await googleRes.json();
-    if (process.env.GOOGLE_CLIENT_ID && payload.aud !== process.env.GOOGLE_CLIENT_ID) {
-      throw new HttpError(401, 'Google client ID mismatch.');
-    }
-    email = payload.email;
-    name = payload.name || payload.email;
-    googleId = payload.sub;
+const GOOGLE_ISSUERS = ['accounts.google.com', 'https://accounts.google.com'];
+
+// Identity comes only from a Google-signed ID token issued to our client ID, never from the request body.
+async function verifyGoogleCredential(credential) {
+  const clientId = process.env.GOOGLE_CLIENT_ID;
+  if (!clientId) {
+    throw new HttpError(503, 'Google sign-in is not available right now. Please use email instead.');
+  }
+  if (typeof credential !== 'string' || !credential) {
+    throw new HttpError(400, 'Google sign-in token is required.');
   }
 
-  if (!email?.trim() || !googleId) {
-    throw new HttpError(400, 'Google account details are required.');
+  let googleRes;
+  try {
+    googleRes = await fetch(`https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(credential)}`, {
+      signal: AbortSignal.timeout(5000)
+    });
+  } catch (err) {
+    throw new HttpError(503, 'Could not reach Google. Please try again.');
   }
+  if (!googleRes.ok) {
+    throw new HttpError(401, 'Google sign-in expired or is invalid. Please try again.');
+  }
+
+  const payload = await googleRes.json();
+  if (payload.aud !== clientId || !GOOGLE_ISSUERS.includes(payload.iss) || !payload.sub || !payload.email) {
+    throw new HttpError(401, 'Google sign-in expired or is invalid. Please try again.');
+  }
+  if (payload.email_verified !== true && payload.email_verified !== 'true') {
+    throw new HttpError(401, 'Your Google email address is not verified.');
+  }
+  return { email: payload.email, name: payload.name || payload.email, googleId: payload.sub };
+}
+
+function googleConfig() {
+  return { clientId: process.env.GOOGLE_CLIENT_ID || null };
+}
+
+// 5. GOOGLE LOGIN — Google Identity Services ID token (credential).
+async function googleLogin({ role, credential }) {
+  const { email, name, googleId } = await verifyGoogleCredential(credential);
 
   const normalizedEmail = email.trim().toLowerCase();
   let user = await findAccountByEmail(normalizedEmail);
@@ -338,8 +360,7 @@ async function googleLogin({ name, email, googleId, role, credential }) {
       throw new HttpError(400, 'Account not found. Please choose Consumer or Vendor to register with Google.', {
         needsRegistration: true,
         email: normalizedEmail,
-        name,
-        googleId
+        name
       });
     }
 
@@ -366,7 +387,8 @@ async function googleLogin({ name, email, googleId, role, credential }) {
     await user.save();
   } else {
     assertNotBlocked(user);
-    if (!user.googleId) {
+    // Google has verified this email, so link (or re-link) the account to this Google identity.
+    if (user.googleId !== googleId || !user.isVerified) {
       user.googleId = googleId;
       user.isVerified = true;
       await user.save();
@@ -531,6 +553,7 @@ module.exports = {
   login,
   verifyLogin2fa,
   googleLogin,
+  googleConfig,
   demoLogin,
   forgotPassword,
   resetPassword

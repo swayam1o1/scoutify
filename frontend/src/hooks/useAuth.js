@@ -417,173 +417,43 @@ export function useAuth({ onLogout, onLoginSuccess } = {}) {
     }
   };
 
-  // Auth: Google Sign-in (Simulated)
-  const handleGoogleLogin = async () => {
+  // Auth: Google Sign-in. `credential` is the ID token from Google Identity Services;
+  // the backend verifies it with Google before trusting the email.
+  const handleGoogleCredential = async (credential) => {
     setAuthError('');
     setAuthSuccess('');
+    if (!credential) {
+      setAuthError('Google sign-in was cancelled. Please try again.');
+      return;
+    }
 
-    // Open a beautiful simulated google authentication window
-    const width = 500;
-    const height = 600;
-    const left = window.screenX + (window.outerWidth - width) / 2;
-    const top = window.screenY + (window.outerHeight - height) / 2;
+    try {
+      const res = await authFetch('/auth/google-login', {
+        method: 'POST',
+        body: { credential, role: authRole }
+      });
 
-    const popup = window.open(
-      '',
-      'Google Login',
-      `width=${width},height=${height},left=${left},top=${top},status=no,resizable=no`
-    );
-
-    popup.document.write(`
-      <html>
-        <head>
-          <title>Sign in - Google Accounts</title>
-          <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-          <style>
-            body {
-              background-color: #0a0b10;
-              color: #f3f4f6;
-              font-family: 'Outfit', sans-serif;
-              display: flex;
-              flex-direction: column;
-              align-items: center;
-              justify-content: center;
-              height: 100vh;
-              margin: 0;
-              text-align: center;
-            }
-            .card {
-              background: #12131a;
-              border: 1px solid rgba(255,255,255,0.08);
-              border-radius: 16px;
-              padding: 40px;
-              box-shadow: 0 10px 30px rgba(0,0,0,0.5);
-              width: 85%;
-              max-width: 400px;
-            }
-            .logo {
-              font-size: 28px;
-              font-weight: 700;
-              background: linear-gradient(135deg, #14f195, #00c6ff);
-              -webkit-background-clip: text;
-              -webkit-text-fill-color: transparent;
-              margin-bottom: 24px;
-            }
-            .subtitle {
-              color: #9ca3af;
-              font-size: 14px;
-              margin-bottom: 30px;
-            }
-            .account-btn {
-              display: flex;
-              align-items: center;
-              background: rgba(255,255,255,0.03);
-              border: 1px solid rgba(255,255,255,0.08);
-              color: #fff;
-              padding: 14px 20px;
-              border-radius: 10px;
-              width: 100%;
-              text-align: left;
-              cursor: pointer;
-              margin-bottom: 12px;
-              transition: all 0.2s;
-              font-size: 15px;
-            }
-            .account-btn:hover {
-              background: rgba(255,255,255,0.08);
-              border-color: #14f195;
-            }
-            .avatar {
-              background: #14f195;
-              color: #000;
-              width: 32px;
-              height: 32px;
-              border-radius: 50%;
-              display: flex;
-              align-items: center;
-              justify-content: center;
-              font-weight: 600;
-              margin-right: 14px;
-            }
-          </style>
-        </head>
-        <body>
-          <div class="card">
-            <div class="logo">Scoutify</div>
-            <div class="subtitle">Choose an account to continue to Scoutify</div>
-            
-            <button class="account-btn" onclick="select('John Doe', 'john.doe@gmail.com')">
-              <div class="avatar">JD</div>
-              <div>
-                <div style="font-weight: 500;">John Doe</div>
-                <div style="font-size: 12px; color: #9ca3af;">john.doe@gmail.com</div>
-              </div>
-            </button>
-            
-            <button class="account-btn" onclick="select('Sarah Smith', 'sarah.smith@designstudio.com')">
-              <div class="avatar" style="background:#9945ff; color:#fff">SS</div>
-              <div>
-                <div style="font-weight: 500;">Sarah Smith</div>
-                <div style="font-size: 12px; color: #9ca3af;">sarah.smith@designstudio.com</div>
-              </div>
-            </button>
-          </div>
-          <script>
-            function select(name, email) {
-              window.opener.postMessage({
-                source: 'google-oauth-mock',
-                name: name,
-                email: email,
-                googleId: 'g_id_' + Math.random().toString(36).substr(2, 9)
-              }, '*');
-              window.close();
-            }
-          </script>
-        </body>
-      </html>
-    `);
-
-    // Listen for OAuth message
-    const handleOAuthMessage = async (event) => {
-      if (event.data && event.data.source === 'google-oauth-mock') {
-        window.removeEventListener('message', handleOAuthMessage);
-
-        // Trigger backend registration/login
-        try {
-          const res = await authFetch('/auth/google-login', {
-            method: 'POST',
-            body: {
-              name: event.data.name,
-              email: event.data.email,
-              googleId: event.data.googleId,
-              role: authRole // Uses currently selected role in form
-            }
-          });
-
-          const data = await res.json();
-          if (!res.ok) {
-            return setAuthError(data.message || 'Google authentication failed.');
-          }
-
-          if (data.requires2FA) {
-            setVerificationEmail(data.email);
-            setVerifying2Fa(true);
-            setShowAuthModal(true);
-            setAuthSuccess('Open Google Authenticator and enter the current 6-digit code.');
-            return;
-          }
-
-          setToken(data.token);
-          setUser(data.user);
-          setShowAuthModal(false);
-          onLoginSuccess?.(data.user);
-        } catch (err) {
-          setAuthError('Connection error during Google Sign-In.');
-        }
+      const data = await res.json();
+      if (!res.ok) {
+        setAuthError(data.message || 'Google authentication failed.');
+        return;
       }
-    };
 
-    window.addEventListener('message', handleOAuthMessage);
+      if (data.requires2FA) {
+        setVerificationEmail(data.email);
+        setVerifying2Fa(true);
+        setShowAuthModal(true);
+        setAuthSuccess('Open Google Authenticator and enter the current 6-digit code.');
+        return;
+      }
+
+      setToken(data.token);
+      setUser(data.user);
+      setShowAuthModal(false);
+      onLoginSuccess?.(data.user);
+    } catch (err) {
+      setAuthError('Connection error during Google Sign-In.');
+    }
   };
 
   // Demo personas: authenticates instantly and reports the issued token back to the caller.
@@ -1161,7 +1031,7 @@ export function useAuth({ onLogout, onLoginSuccess } = {}) {
     handleVerify2Fa,
     handleVerifyPhoneOtp,
     skipPhoneVerification,
-    handleGoogleLogin,
+    handleGoogleCredential,
     demoLogin,
     handleHudDemoLogin,
 
