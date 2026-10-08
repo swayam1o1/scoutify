@@ -48,6 +48,7 @@ export function SearchView({ search, boards, user, onRequireAuth, onNavigate }) 
     searchResults,
     totalResults,
     paywallActive,
+    resultLimit,
     personalized,
     hasSearched,
     searching,
@@ -78,10 +79,11 @@ export function SearchView({ search, boards, user, onRequireAuth, onNavigate }) 
     }
   };
 
-  // Hard-cap: basic plan users never see more than 10 results regardless of state
+  // Hard-cap: basic plan users see at most 5 AI leads / 10 standard results, whatever the response holds.
   const isCapped = user?.subscriptionPlan === 'basic' || !user;
-  const visibleResults = isCapped ? searchResults.slice(0, 10) : searchResults;
-  const showPaywall = paywallActive || (isCapped && totalResults > 10);
+  const planLimit = isCapped ? (resultLimit ?? (searchMode === 'ai' ? 5 : 10)) : null;
+  const visibleResults = planLimit ? searchResults.slice(0, planLimit) : searchResults;
+  const showPaywall = paywallActive || (planLimit !== null && totalResults > planLimit);
 
   const extractChips = [];
   if (searchMode === 'ai' && aiExtracted) {
@@ -355,6 +357,8 @@ export function SearchView({ search, boards, user, onRequireAuth, onNavigate }) 
                 {showPaywall && (
                   <PaywallSection
                     totalResults={totalResults}
+                    visibleCount={visibleResults.length}
+                    isAiSearch={searchMode === 'ai'}
                     user={user}
                     onRegister={() => onRequireAuth('register')}
                     onUpgrade={() => onNavigate('pricing')}
