@@ -33,9 +33,11 @@ const verify2fa = handle(async (req, res) => {
 }, 'Server error during 2FA verification.');
 
 const googleLogin = handle(async (req, res) => {
-  const { name, email, googleId, role, credential } = req.body;
-  res.json(await authService.googleLogin({ name, email, googleId, role, credential }));
+  const { role, credential } = req.body;
+  res.json(await authService.googleLogin({ role, credential }));
 }, 'Server error during Google login.');
+
+const googleConfig = (req, res) => res.json(authService.googleConfig());
 
 const twoFactorSetup = handle(async (req, res) => {
   const user = await twoFactorService.getAuthedUser(req.headers.authorization);
@@ -115,6 +117,7 @@ module.exports = {
   login,
   verify2fa,
   googleLogin,
+  googleConfig,
   twoFactorSetup,
   twoFactorEnable,
   twoFactorDisable,

@@ -18,6 +18,7 @@ router.post('/login', authController.login);
 router.post('/verify-2fa', authController.verify2fa);
 // 5. GOOGLE LOGIN
 router.post('/google-login', authController.googleLogin);
+router.get('/google-config', authController.googleConfig);
 
 // 6. GOOGLE AUTHENTICATOR SETUP / ENABLE / DISABLE — these check the Bearer token themselves.
 router.post('/2fa/setup', authController.twoFactorSetup);

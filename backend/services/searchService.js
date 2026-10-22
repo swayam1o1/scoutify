@@ -59,6 +59,7 @@ async function standardSearch({ service, location }, user) {
     results: sanitizeArtisans(results, { isLoggedIn }),
     totalResults,
     paywallActive: totalResults > BASIC_RESULT_LIMIT && userPlan === 'basic',
+    resultLimit: basicLimit,
     isLoggedIn,
     userPlan,
     personalized: Boolean(prefs),
@@ -66,4 +67,4 @@ async function standardSearch({ service, location }, user) {
   };
 }
 
-module.exports = { standardSearch, BASIC_RESULT_LIMIT };
+module.exports = { standardSearch };

@@ -18,7 +18,6 @@ const { asString, buildClientImagePrompt, parseClientImageJson, imagePart } = re
 const { getClientPreferences } = require('../utils/clientPreferences');
 const { buildSearchTerms, searchTermsFilter, scoreSearchTerms } = require('../utils/searchTerms');
 const { locationFilter } = require('../utils/locations');
-const { BASIC_RESULT_LIMIT } = require('./searchService');
 const { JWT_SECRET, isSessionValid } = require('../middleware/auth');
 const {
   applyPreferences,
@@ -31,6 +30,8 @@ const {
 
 const IMAGE_RESULT_LIMIT = 6;
 const TEXT_RESULT_LIMIT = 50;
+// Basic plan sees this many AI leads per search; the rest are never sent and unlock with Pro.
+const BASIC_AI_RESULT_LIMIT = 5;
 // Past these, search carries on with the regex intent / keyword matches instead of waiting.
 const INTENT_TIMEOUT_MS = 4000;
 const EMBED_TIMEOUT_MS = 3000;
@@ -156,22 +157,32 @@ function validateTextQuery(query) {
   }
 }
 
+function capForPlan(allResults, user) {
+  const isBasic = (user ? user.subscriptionPlan : 'basic') === 'basic';
+  const totalResults = allResults.length;
+  return {
+    results: isBasic ? allResults.slice(0, BASIC_AI_RESULT_LIMIT) : allResults,
+    totalResults,
+    paywallActive: isBasic && totalResults > BASIC_AI_RESULT_LIMIT,
+    resultLimit: isBasic ? BASIC_AI_RESULT_LIMIT : null
+  };
+}
+
 /**
  * Text AI search. Returns the response `payload` plus the `search` record to log
  * (via recordSearchAndNotify) once the response has been sent.
  */
 async function textSearch(query, user) {
   const prefs = getClientPreferences(user);
-  const userPlan = user ? user.subscriptionPlan : 'basic';
   const reply = payload => {
-    const totalResults = payload.results.length;
-    const results = userPlan === 'basic' ? payload.results.slice(0, BASIC_RESULT_LIMIT) : payload.results;
+    const { results, totalResults, paywallActive, resultLimit } = capForPlan(payload.results, user);
     return {
       payload: {
         ...payload,
         results,
         totalResults,
-        paywallActive: userPlan === 'basic' && totalResults > BASIC_RESULT_LIMIT,
+        paywallActive,
+        resultLimit,
         personalized: Boolean(prefs)
       },
       search: {
@@ -467,9 +478,13 @@ async function imageSearch({ image: imageDataUrl, note: rawNote }, user) {
     }), prefs, extracted));
   }
 
+  const capped = capForPlan(results, user);
   return {
     payload: {
-      results,
+      results: capped.results,
+      totalResults: capped.totalResults,
+      paywallActive: capped.paywallActive,
+      resultLimit: capped.resultLimit,
       extracted,
       summary: fallbackSummary(extracted, results.length),
       suggestions: aiSuggestions.length ? aiSuggestions : buildFallbackSuggestions(briefForAi, extracted),
@@ -481,7 +496,7 @@ async function imageSearch({ image: imageDataUrl, note: rawNote }, user) {
       searchType: 'ai_image',
       query: note || briefForAi,
       extracted,
-      results,
+      results: capped.results,
       simulated: !model
     }
   };

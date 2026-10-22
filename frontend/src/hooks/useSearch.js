@@ -25,6 +25,7 @@ export function useSearch({ token, user, onRequireAuth, demoLogin }) {
     results: searchResults,
     totalResults,
     paywallActive,
+    resultLimit,
     hasSearched,
     searching,
     extracted: aiExtracted,
@@ -73,6 +74,7 @@ export function useSearch({ token, user, onRequireAuth, demoLogin }) {
         results: data.results || [],
         totalResults: data.totalResults || 0,
         paywallActive: data.paywallActive || false,
+        resultLimit: data.resultLimit ?? null,
         personalized: Boolean(data.personalized)
       });
     } catch (err) {
@@ -146,6 +148,7 @@ export function useSearch({ token, user, onRequireAuth, demoLogin }) {
         results: data.results || [],
         totalResults: data.totalResults ?? data.results?.length ?? 0,
         paywallActive: data.paywallActive || false,
+        resultLimit: data.resultLimit ?? null,
         extracted: data.extracted || null,
         summary: data.summary || null,
         suggestions: Array.isArray(data.suggestions) ? data.suggestions : [],
@@ -200,7 +203,8 @@ export function useSearch({ token, user, onRequireAuth, demoLogin }) {
       updateSearchMode('standard', {
         results: data.results || [],
         totalResults: data.totalResults || 0,
-        paywallActive: data.paywallActive || false
+        paywallActive: data.paywallActive || false,
+        resultLimit: data.resultLimit ?? null
       });
     } catch (err) {
       console.error(err);
@@ -249,6 +253,7 @@ export function useSearch({ token, user, onRequireAuth, demoLogin }) {
         results: data.results || [],
         totalResults: data.totalResults ?? data.results?.length ?? 0,
         paywallActive: data.paywallActive || false,
+        resultLimit: data.resultLimit ?? null,
         extracted: data.extracted || null,
         summary: data.summary || null,
         suggestions: Array.isArray(data.suggestions) ? data.suggestions : [],
@@ -287,6 +292,7 @@ export function useSearch({ token, user, onRequireAuth, demoLogin }) {
     searchResults,
     totalResults,
     paywallActive,
+    resultLimit,
     personalized,
     hasSearched,
     searching,

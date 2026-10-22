@@ -1,6 +1,8 @@
 import { Lock } from 'lucide-react';
 
-export function PaywallSection({ totalResults, user, onRegister, onUpgrade }) {
+export function PaywallSection({ totalResults, visibleCount, isAiSearch = false, user, onRegister, onUpgrade }) {
+  const remaining = Math.max(0, totalResults - visibleCount);
+  const vendorsLabel = `${remaining} more verified ${remaining === 1 ? 'vendor' : 'vendors'}`;
   return (
     <div className="glass-card paywall-section animate-fade-in" style={{ marginTop: '30px', padding: '40px', position: 'relative', textAlign: 'center', overflow: 'hidden' }}>
       {/* Previews background graphic */}
@@ -18,9 +20,11 @@ export function PaywallSection({ totalResults, user, onRegister, onUpgrade }) {
       {/* Paywall Content */}
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', zIndex: 2, position: 'relative' }}>
         <Lock size={36} style={{ color: 'var(--color-primary)', marginBottom: '12px' }} />
-        <h3>Viewing Limits Exceeded</h3>
+        <h3>{isAiSearch ? `Basic plan shows the top ${visibleCount} AI leads` : 'Viewing Limits Exceeded'}</h3>
         <p style={{ color: 'var(--color-text-secondary)', maxWidth: '400px', margin: '8px auto 20px', fontSize: '14px' }}>
-          Unlock access to remaining {totalResults - 10} verified artisans found matching this search!
+          {isAiSearch
+            ? `AI found ${vendorsLabel} for this search. Upgrade to Pro to unlock every lead.`
+            : `Unlock access to ${vendorsLabel} found matching this search!`}
         </p>
         <div style={{ display: 'flex', gap: '12px' }}>
           {!user ? (

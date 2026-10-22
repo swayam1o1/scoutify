@@ -649,20 +649,13 @@
   flex-shrink: 0;
 }
 
-/* Custom Google Login Button */
-.btn-google {
-  background: #fff;
-  color: #000;
-  border: 1px solid #e5e7eb;
+/* Google Identity Services button (rendered by Google inside this container) */
+.google-signin {
+  display: flex;
+  justify-content: center;
   width: 100%;
-  font-weight: 600;
+  min-height: 44px;
   margin-bottom: 16px;
-}
-
-.btn-google:hover {
-  background: #f9fafb;
-  transform: translateY(-1px);
-  box-shadow: 0 4px 12px var(--surface-4);
 }
 
 .divider {
