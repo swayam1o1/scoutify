@@ -4,6 +4,7 @@ const { toList, buildSearchText, pickListingSnapshot, LISTING_FIELDS } = require
 const { PUBLIC_CONTACT_STATUSES } = require('../constants/artisan');
 const { refreshListingEmbedding } = require('./listingEmbeddingService');
 const { assertReauth, clearReauthChallenge, companyNameChanged } = require('./reauthService');
+const { normalizeVendorType, assessVendorListing, assertReadyForReview } = require('../utils/vendorVerification');
 
 // Listing fields of a vendor account, in the shape the frontend knows as `artisanProfile`.
 function artisanProfileOf(account) {
@@ -11,12 +12,14 @@ function artisanProfileOf(account) {
   for (const { key, list } of LISTING_FIELDS) {
     profile[key] = list ? [...(account[key] || [])] : account[key];
   }
+  profile.vendorType = normalizeVendorType(account.vendorType);
   return profile;
 }
 
 function listingFieldsFrom(source = {}) {
   return {
     companyName: String(source.companyName || '').trim(),
+    vendorType: normalizeVendorType(source.vendorType),
     instagram: source.instagram,
     city: source.city,
     personOfContact: source.personOfContact,
@@ -41,6 +44,7 @@ function newArtisanAccount({ name, listing = {}, ...account }) {
     ...fields,
     ...account,
     name,
+    vendorType: fields.vendorType,
     hasAccount: true,
     tokenVersion: 0,
     isVerified: Boolean(account.isVerified),
@@ -57,10 +61,12 @@ function newArtisanAccount({ name, listing = {}, ...account }) {
 }
 
 async function getProfile(account) {
+  const profile = artisanProfileOf(account);
   return {
-    profile: artisanProfileOf(account),
+    profile,
     contactStatus: account.contactStatus || null,
-    approvalPending: account.contactStatus === 'pending'
+    approvalPending: account.contactStatus === 'pending',
+    verification: assessVendorListing({ ...profile, catalogue: account.catalogue, phoneNumber: account.phoneNumber })
   };
 }
 
@@ -90,6 +96,18 @@ async function saveProfile(account, body) {
   }
 
   const fields = listingFieldsFrom(body);
+  // Login phone is the listing contact phone for verification checks.
+  const reviewListing = {
+    ...fields,
+    phoneNumber: account.phoneNumber,
+    catalogue: account.catalogue
+  };
+  try {
+    assertReadyForReview(reviewListing, fields.vendorType);
+  } catch (err) {
+    throw new HttpError(err.statusCode || 400, err.message, { verification: err.assessment });
+  }
+
   account.set(fields);
   account.contactStatus = 'pending';
   account.changeRequestedAt = new Date();
@@ -97,11 +115,16 @@ async function saveProfile(account, body) {
   await account.save();
   refreshListingEmbedding(account._id);
 
+  const profile = artisanProfileOf(account);
+  const verification = assessVendorListing({ ...profile, catalogue: account.catalogue, phoneNumber: account.phoneNumber });
   return {
-    message: 'Listing saved. A Scoutify admin will review it before it appears in search.',
-    profile: artisanProfileOf(account),
+    message: fields.vendorType === 'firm'
+      ? 'Firm listing saved for a lighter admin review. It stays hidden until approved.'
+      : 'Listing saved for full verification. A Scoutify admin will review it before it appears in search.',
+    profile,
     contactStatus: account.contactStatus,
-    approvalPending: account.contactStatus === 'pending'
+    approvalPending: account.contactStatus === 'pending',
+    verification
   };
 }
 

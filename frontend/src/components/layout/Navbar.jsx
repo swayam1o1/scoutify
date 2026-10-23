@@ -12,14 +12,18 @@ export function Navbar({ currentView, user, onNavigate, onOpenBoards, onSignIn, 
 
       <div className="nav-links">
         <button
+          type="button"
           className={`btn btn-secondary ${currentView === 'search' ? 'active-tab' : ''}`}
+          aria-current={currentView === 'search' ? 'page' : undefined}
           onClick={() => onNavigate('search')}
         >
           Search
         </button>
 
         <button
+          type="button"
           className={`btn btn-secondary ${currentView === 'pricing' ? 'active-tab' : ''}`}
+          aria-current={currentView === 'pricing' ? 'page' : undefined}
           onClick={() => onNavigate('pricing')}
         >
           Plans
@@ -27,7 +31,9 @@ export function Navbar({ currentView, user, onNavigate, onOpenBoards, onSignIn, 
 
         {user?.role === 'admin' && (
           <button
-            className={`btn btn-secondary ${currentView === 'admin' || currentView === 'dashboard' ? 'active-tab' : ''}`}
+            type="button"
+            className={`btn btn-secondary ${currentView === 'admin' || (user.mustEnable2FA && currentView === 'dashboard') ? 'active-tab' : ''}`}
+            aria-current={currentView === 'admin' || (user.mustEnable2FA && currentView === 'dashboard') ? 'page' : undefined}
             onClick={() => onNavigate(user.mustEnable2FA ? 'dashboard' : 'admin')}
           >
             <ShieldCheck size={16} />

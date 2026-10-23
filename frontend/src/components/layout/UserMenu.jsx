@@ -41,6 +41,7 @@ function roleLabel(user) {
 export function UserMenu({ user, currentView, onNavigate, onOpenBoards, onLogout }) {
   const [open, setOpen] = useState(false);
   const menuRef = useRef(null);
+  const sectionActive = ['dashboard', 'boards', 'board-details', 'onboarding', 'admin'].includes(currentView);
   const { theme, setTheme } = useTheme();
 
   useEffect(() => {
@@ -72,7 +73,7 @@ export function UserMenu({ user, currentView, onNavigate, onOpenBoards, onLogout
     <div className="user-menu" ref={menuRef}>
       <button
         type="button"
-        className={`user-menu-trigger ${open ? 'is-open' : ''}`}
+        className={`user-menu-trigger ${open ? 'is-open' : ''} ${sectionActive ? 'is-active-section' : ''}`}
         onClick={() => setOpen(prev => !prev)}
         aria-haspopup="menu"
         aria-expanded={open}
@@ -162,7 +163,7 @@ export function UserMenu({ user, currentView, onNavigate, onOpenBoards, onLogout
           {user.role !== 'admin' && (
             <button
               type="button"
-              className="user-menu-item"
+              className={`user-menu-item ${currentView === 'pricing' ? 'is-active' : ''}`}
               onClick={() => go(() => onNavigate('pricing'))}
             >
               <Settings size={16} />

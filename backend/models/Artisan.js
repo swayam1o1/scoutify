@@ -27,6 +27,8 @@ const CatalogueItemSchema = new mongoose.Schema({
 
 const ArtisanSchema = new mongoose.Schema({
   companyName: { type: String, required: true },
+  // firm = lighter verification; individual = stricter (default for legacy rows)
+  vendorType: { type: String, enum: ['firm', 'individual'], default: 'individual' },
   phoneNumber: { type: String },
   email: { type: String },
   instagram: { type: String },

@@ -18,14 +18,33 @@ const STAT_CARDS = [
 function SubscriptionStats({ subscriptions }) {
   if (!subscriptions) return null;
 
+  const basic = subscriptions.basic || 0;
+  const pro = subscriptions.pro || 0;
+  const enterprise = subscriptions.enterprise || 0;
+  const paid = pro + enterprise;
+
   return (
     <div className="glass-card" style={{ marginBottom: '20px' }}>
-      <h3 style={{ marginBottom: '12px', fontSize: '16px' }}>Consumer Subscriptions</h3>
+      <h3 style={{ marginBottom: '6px', fontSize: '16px' }}>Plans taken by consumers</h3>
+      <p style={{ fontSize: '12px', color: 'var(--color-text-secondary)', marginBottom: '14px' }}>
+        How many signed-up clients are on each membership tier (not a credits wallet).
+      </p>
+      <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', marginBottom: '14px' }}>
+        <div style={{ minWidth: '120px', padding: '10px 14px', borderRadius: '10px', background: 'var(--surface-3)' }}>
+          <div style={{ fontSize: '12px', color: 'var(--color-text-secondary)' }}>Paid plans taken</div>
+          <div style={{ fontSize: '26px', fontWeight: 700, color: 'var(--color-primary)' }}>{paid}</div>
+          <div style={{ fontSize: '11px', color: 'var(--color-text-secondary)' }}>Pro + Enterprise</div>
+        </div>
+      </div>
       <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
-        {['basic', 'pro', 'enterprise'].map(plan => (
-          <div key={plan} style={{ minWidth: '100px' }}>
-            <div style={{ fontSize: '12px', color: 'var(--color-text-secondary)', textTransform: 'uppercase' }}>{plan}</div>
-            <div style={{ fontSize: '22px', fontWeight: 600 }}>{subscriptions[plan] || 0}</div>
+        {[
+          { key: 'basic', label: 'Basic (free)', value: basic },
+          { key: 'pro', label: 'Pro', value: pro },
+          { key: 'enterprise', label: 'Enterprise', value: enterprise }
+        ].map(plan => (
+          <div key={plan.key} style={{ minWidth: '100px' }}>
+            <div style={{ fontSize: '12px', color: 'var(--color-text-secondary)' }}>{plan.label}</div>
+            <div style={{ fontSize: '22px', fontWeight: 600 }}>{plan.value}</div>
           </div>
         ))}
       </div>
@@ -111,17 +130,19 @@ function StatsGrid({ stats }) {
 
 function VendorModerationPanel({ admin }) {
   const { vendors, statusFilter, setStatusFilter, setVendorStatus, deleteVendor, openVendorDetail, loading } = admin;
+  // Skip shell / incomplete rows that have no company name (look like an empty card).
+  const visibleVendors = vendors.filter(v => String(v.companyName || '').trim());
 
   return (
-    <div className="glass-card">
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px', marginBottom: '14px' }}>
-        <h3 style={{ margin: 0 }}>Vendor Listings</h3>
-        <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+    <div className="glass-card admin-vendor-panel">
+      <div className="admin-vendor-panel-header">
+        <h3>Vendor Listings</h3>
+        <div className="admin-status-filters">
           {STATUS_FILTERS.map(status => (
             <button
               key={status}
+              type="button"
               className={`btn ${statusFilter === status ? 'btn-primary' : 'btn-secondary'}`}
-              style={{ padding: '6px 12px', fontSize: '12px', textTransform: 'capitalize', color: statusFilter === status ? 'var(--color-on-primary)' : undefined }}
               onClick={() => setStatusFilter(status)}
             >
               {status}
@@ -130,90 +151,94 @@ function VendorModerationPanel({ admin }) {
         </div>
       </div>
 
-      {loading && vendors.length === 0 ? (
-        <p style={{ color: 'var(--color-text-secondary)', fontSize: '14px' }}>Loading listings…</p>
-      ) : vendors.length === 0 ? (
-        <p style={{ color: 'var(--color-text-secondary)', fontSize: '14px' }}>No listings with this status.</p>
+      {loading && visibleVendors.length === 0 ? (
+        <p className="admin-panel-empty">Loading listings…</p>
+      ) : visibleVendors.length === 0 ? (
+        <p className="admin-panel-empty">No listings with this status.</p>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', maxHeight: '460px', overflowY: 'auto' }}>
-          {vendors.map(vendor => (
-            <div key={vendor._id} className="glass-card" style={{ padding: '14px', border: '1px solid var(--border-subtle)' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '10px', marginBottom: '8px' }}>
-                <div>
-                  <strong style={{ fontSize: '15px' }}>{vendor.companyName}</strong>
-                  <div style={{ fontSize: '12px', color: 'var(--color-text-secondary)' }}>
-                    {[vendor.city, vendor.personOfContact, vendor.phoneNumber, vendor.email].filter(Boolean).join(' · ') || 'No contact details'}
-                  </div>
-                  {vendor.specialization?.length > 0 && (
-                    <div className="artisan-specializations" style={{ marginTop: '6px' }}>
-                      {vendor.specialization.map((spec, i) => (
-                        <span key={i} className="spec-tag">{spec}</span>
-                      ))}
-                    </div>
-                  )}
-                </div>
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '6px' }}>
-                  <span className={`badge ${isLiveStatus(vendor.contactStatus) ? '' : 'badge-purple'}`} style={{ fontSize: '10px', whiteSpace: 'nowrap' }}>
-                    {vendor.contactStatus?.toUpperCase()}
-                  </span>
-                  {vendor.isFirstSubmission ? (
-                    <span style={{ fontSize: '11px', color: 'var(--tone-purple-text)', whiteSpace: 'nowrap' }}>New listing</span>
-                  ) : (vendor.changeCount > 0 || vendor.newCatalogueCount > 0) && (
-                    <span style={{ fontSize: '11px', color: 'var(--tone-warning-text)', whiteSpace: 'nowrap' }}>
-                      {[
-                        vendor.changeCount > 0 && `${vendor.changeCount} change${vendor.changeCount === 1 ? '' : 's'}`,
-                        vendor.newCatalogueCount > 0 && `${vendor.newCatalogueCount} new product${vendor.newCatalogueCount === 1 ? '' : 's'}`
-                      ].filter(Boolean).join(' · ')}
-                    </span>
-                  )}
-                </div>
-              </div>
+        <div className="admin-vendor-list">
+          {visibleVendors.map(vendor => {
+            const isFirm = (vendor.vendorType || vendor.verification?.vendorType) === 'firm';
+            const isLight = vendor.verification?.verificationTier === 'light' || isFirm;
+            const missing = vendor.verification && !vendor.verification.readyForReview
+              ? vendor.verification.missingRequired
+              : [];
+            const changeNote = vendor.isFirstSubmission
+              ? 'New listing'
+              : [
+                vendor.changeCount > 0 && `${vendor.changeCount} change${vendor.changeCount === 1 ? '' : 's'}`,
+                vendor.newCatalogueCount > 0 && `${vendor.newCatalogueCount} new product${vendor.newCatalogueCount === 1 ? '' : 's'}`
+              ].filter(Boolean).join(' · ');
 
-              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                <button
-                  className="btn btn-secondary"
-                  style={{ padding: '6px 12px', fontSize: '12px', gap: '6px' }}
-                  onClick={() => openVendorDetail(vendor._id)}
-                >
-                  <Eye size={14} /> View Details
-                </button>
-                {!isLiveStatus(vendor.contactStatus) && (
-                  <button
-                    className="btn btn-primary"
-                    style={{ padding: '6px 12px', fontSize: '12px' }}
-                    onClick={() => setVendorStatus(vendor._id, 'approved')}
-                  >
-                    Approve
-                  </button>
+            return (
+              <article key={vendor._id} className="admin-vendor-card">
+                <div className="admin-vendor-card-top">
+                  <div className="admin-vendor-card-main">
+                    <h4 className="admin-vendor-name">{vendor.companyName}</h4>
+                    <p className="admin-vendor-meta">
+                      {[vendor.city, vendor.personOfContact, vendor.phoneNumber, vendor.email].filter(Boolean).join(' · ') || 'No contact details'}
+                    </p>
+                  </div>
+                  <div className="admin-vendor-badges">
+                    <span className={`badge ${isLiveStatus(vendor.contactStatus) ? '' : 'badge-purple'}`}>
+                      {vendor.contactStatus?.toUpperCase()}
+                    </span>
+                    <span className={`badge admin-tier-badge ${isLight ? 'is-light' : 'is-strict'}`}>
+                      {isFirm ? 'Firm · Light' : 'Individual · Strict'}
+                    </span>
+                    {changeNote && (
+                      <span className={`admin-vendor-note ${vendor.isFirstSubmission ? 'is-new' : 'is-changed'}`}>
+                        {changeNote}
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                {vendor.specialization?.length > 0 && (
+                  <div className="admin-vendor-tags">
+                    {vendor.specialization.map((spec, i) => (
+                      <span key={i} className="spec-tag">{spec}</span>
+                    ))}
+                  </div>
                 )}
-                {vendor.contactStatus !== 'rejected' && (
-                  <button
-                    className="btn btn-outline"
-                    style={{ padding: '6px 12px', fontSize: '12px' }}
-                    onClick={() => setVendorStatus(vendor._id, 'rejected')}
-                  >
-                    Reject
-                  </button>
+
+                {missing.length > 0 && (
+                  <div className="admin-vendor-missing" title={missing.join(', ')}>
+                    <span className="admin-vendor-missing-label">Missing for review</span>
+                    <span className="admin-vendor-missing-list">{missing.join(' · ')}</span>
+                  </div>
                 )}
-                {vendor.contactStatus !== 'pending' && (
-                  <button
-                    className="btn btn-outline"
-                    style={{ padding: '6px 12px', fontSize: '12px' }}
-                    onClick={() => setVendorStatus(vendor._id, 'pending')}
-                  >
-                    Mark Pending
+
+                <div className="admin-vendor-actions">
+                  <button type="button" className="btn btn-secondary" onClick={() => openVendorDetail(vendor._id)}>
+                    <Eye size={14} /> View Details
                   </button>
-                )}
-                <button
-                  className="btn btn-outline"
-                  style={{ padding: '6px 12px', fontSize: '12px', borderColor: 'var(--color-danger)', color: 'var(--color-danger)' }}
-                  onClick={() => deleteVendor(vendor._id)}
-                >
-                  Delete
-                </button>
-              </div>
-            </div>
-          ))}
+                  {!isLiveStatus(vendor.contactStatus) && (
+                    <button type="button" className="btn btn-primary" onClick={() => setVendorStatus(vendor._id, 'approved', vendor)}>
+                      Approve
+                    </button>
+                  )}
+                  {vendor.contactStatus !== 'rejected' && (
+                    <button type="button" className="btn btn-outline" onClick={() => setVendorStatus(vendor._id, 'rejected')}>
+                      Reject
+                    </button>
+                  )}
+                  {vendor.contactStatus !== 'pending' && (
+                    <button type="button" className="btn btn-outline" onClick={() => setVendorStatus(vendor._id, 'pending')}>
+                      Mark Pending
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    className="btn btn-outline admin-vendor-delete"
+                    onClick={() => deleteVendor(vendor._id)}
+                  >
+                    Delete
+                  </button>
+                </div>
+              </article>
+            );
+          })}
         </div>
       )}
     </div>
@@ -235,8 +260,22 @@ function CreateVendorPanel({ admin }) {
             <input type="text" className="form-control" value={newVendor.companyName} onChange={setField('companyName')} required />
           </div>
           <div className="form-group">
+            <label className="form-label">Vendor type</label>
+            <select className="form-control form-select" value={newVendor.vendorType || 'individual'} onChange={setField('vendorType')}>
+              <option value="individual">Individual (strict)</option>
+              <option value="firm">Firm (light)</option>
+            </select>
+          </div>
+        </div>
+
+        <div className="grid-container grid-2">
+          <div className="form-group">
             <label className="form-label">City</label>
             <input type="text" className="form-control" value={newVendor.city} onChange={setField('city')} />
+          </div>
+          <div className="form-group">
+            <label className="form-label">Person of Contact</label>
+            <input type="text" className="form-control" value={newVendor.personOfContact} onChange={setField('personOfContact')} />
           </div>
         </div>
 
@@ -251,18 +290,12 @@ function CreateVendorPanel({ admin }) {
           </div>
         </div>
 
-        <div className="grid-container grid-2">
-          <div className="form-group">
-            <label className="form-label">Person of Contact</label>
-            <input type="text" className="form-control" value={newVendor.personOfContact} onChange={setField('personOfContact')} />
-          </div>
-          <div className="form-group">
-            <label className="form-label">Listing Status</label>
-            <select className="form-control form-select" value={newVendor.status} onChange={setField('status')}>
-              <option value="approved">Approved (visible in search)</option>
-              <option value="pending">Pending review</option>
-            </select>
-          </div>
+        <div className="form-group">
+          <label className="form-label">Listing Status</label>
+          <select className="form-control form-select" value={newVendor.status} onChange={setField('status')}>
+            <option value="approved">Approved (visible in search)</option>
+            <option value="pending">Pending review</option>
+          </select>
         </div>
 
         <div className="form-group">

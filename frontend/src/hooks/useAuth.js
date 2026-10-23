@@ -51,6 +51,7 @@ export function useAuth({ onLogout, onLoginSuccess } = {}) {
   const [artisanInsta, setArtisanInsta] = useState('');
   const [artisanCity, setArtisanCity] = useState('');
   const [artisanSpecialization, setArtisanSpecialization] = useState('');
+  const [artisanVendorType, setArtisanVendorType] = useState('individual');
 
   // Forgot / reset password flow
   const [forgotStage, setForgotStage] = useState(''); // '' | 'request' | 'reset'
@@ -109,6 +110,7 @@ export function useAuth({ onLogout, onLoginSuccess } = {}) {
   // Profile forms
   const [profileForm, setProfileForm] = useState({
     companyName: '',
+    vendorType: 'individual',
     phoneNumber: '',
     email: '',
     instagram: '',
@@ -124,6 +126,8 @@ export function useAuth({ onLogout, onLoginSuccess } = {}) {
   });
   const [newPortfolioLink, setNewPortfolioLink] = useState('');
   const [artisanListingStatus, setArtisanListingStatus] = useState(null);
+  const [vendorVerification, setVendorVerification] = useState(null);
+  const [catalogueCount, setCatalogueCount] = useState(0);
 
   const handleLogout = () => {
     setToken('');
@@ -144,7 +148,8 @@ export function useAuth({ onLogout, onLoginSuccess } = {}) {
     const listing = nextUser.artisanProfile || {};
     setProfileForm({
       companyName: listing.companyName || '',
-      phoneNumber: listing.phoneNumber || '',
+      vendorType: listing.vendorType === 'firm' ? 'firm' : 'individual',
+      phoneNumber: listing.phoneNumber || nextUser.phoneNumber || '',
       email: listing.email || nextUser.email || '',
       instagram: listing.instagram || '',
       city: listing.city || '',
@@ -159,6 +164,34 @@ export function useAuth({ onLogout, onLoginSuccess } = {}) {
     });
 
     setArtisanListingStatus(nextUser.artisanListing?.contactStatus || null);
+  };
+
+  const refreshArtisanListing = async (activeToken = token) => {
+    if (!activeToken) return null;
+    try {
+      const res = await authFetch('/artisan/profile', { token: activeToken });
+      if (!res.ok) return null;
+      const data = await res.json();
+      if (data.profile) {
+        setProfileForm(prev => ({
+          ...prev,
+          ...data.profile,
+          vendorType: data.profile.vendorType === 'firm' ? 'firm' : 'individual',
+          phoneNumber: data.profile.phoneNumber || prev.phoneNumber,
+          email: data.profile.email || prev.email,
+          specialization: data.profile.specialization || [],
+          products: data.profile.products || [],
+          customTags: data.profile.customTags || [],
+          portfolio: data.profile.portfolio || []
+        }));
+      }
+      if (data.contactStatus) setArtisanListingStatus(data.contactStatus);
+      if (data.verification) setVendorVerification(data.verification);
+      return data;
+    } catch (err) {
+      console.error('Could not load artisan listing:', err);
+      return null;
+    }
   };
 
   // Single source of truth for the session user.
@@ -178,6 +211,12 @@ export function useAuth({ onLogout, onLoginSuccess } = {}) {
       const data = await res.json();
       setUser(data.user);
       applyUserToForms(data.user);
+      if (data.user?.role === 'artisan') {
+        await refreshArtisanListing(activeToken);
+      } else {
+        setVendorVerification(null);
+        setCatalogueCount(0);
+      }
       return data.user;
     } catch (err) {
       console.error('Could not load account details:', err);
@@ -259,6 +298,7 @@ export function useAuth({ onLogout, onLoginSuccess } = {}) {
           role: 'artisan',
           artisanProfile: {
             companyName: artisanCompany,
+            vendorType: artisanVendorType === 'firm' ? 'firm' : 'individual',
             phoneNumber: artisanPhone,
             instagram: artisanInsta,
             city: artisanCity,
@@ -501,10 +541,12 @@ export function useAuth({ onLogout, onLoginSuccess } = {}) {
       const res = await authFetch('/artisan/profile', { token, method: 'POST', body });
       const data = await res.json();
       if (!res.ok) {
+        if (data.verification) setVendorVerification(data.verification);
         showAccountToast('error', data.message || 'Failed to update listing.');
         return;
       }
       setArtisanListingStatus(data.contactStatus || 'pending');
+      if (data.verification) setVendorVerification(data.verification);
       showAccountToast('success', data.message || 'Listing saved successfully.');
       setReauthForm({ currentPassword: '', totpCode: '', emailOtp: '' });
       await refreshUser();
@@ -1023,6 +1065,8 @@ export function useAuth({ onLogout, onLoginSuccess } = {}) {
     setArtisanCity,
     artisanSpecialization,
     setArtisanSpecialization,
+    artisanVendorType,
+    setArtisanVendorType,
 
     // Handlers
     handleLogin,
@@ -1042,6 +1086,9 @@ export function useAuth({ onLogout, onLoginSuccess } = {}) {
     setNewPortfolioLink,
     handleArtisanProfileSave,
     artisanListingStatus,
+    vendorVerification,
+    catalogueCount,
+    setCatalogueCount,
 
     // Account settings
     accountForm,
