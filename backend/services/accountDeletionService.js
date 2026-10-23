@@ -112,12 +112,18 @@ async function deleteUserAccount(user, { confirmText } = {}) {
     user.set('clientProfile', undefined);
     user.boards = [];
   }
+  const profilePictureKey = user.profilePictureKey;
+  user.set('profilePictureUrl', undefined);
+  user.set('profilePictureKey', undefined);
   user.isDeleted = true;
   user.deletedAt = new Date();
   bumpTokenVersion(user);
 
   await user.save();
-  await Promise.all(catalogueImageKeys.map(key => deleteImage(key)));
+  await Promise.all([
+    ...catalogueImageKeys.map(key => deleteImage(key)),
+    deleteImage(profilePictureKey)
+  ]);
 
   try {
     await Promise.all([

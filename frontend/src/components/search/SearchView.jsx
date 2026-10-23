@@ -1,9 +1,11 @@
-import { useRef } from 'react';
-import { CheckCircle, ImagePlus, MapPin, Search, ShieldCheck, Sparkles, X } from 'lucide-react';
+import { CheckCircle, MapPin, Search, ShieldCheck, Sparkles } from 'lucide-react';
 import { ArtisanCard } from './ArtisanCard';
 import { PaywallSection } from './PaywallSection';
-import { fileToResizedDataUrl, IMAGE_ACCEPT } from '../../utils/image';
-import { showAlert } from '../ui/dialog';
+// CLIENT PAUSED: image search — restore with photo UI below
+// import { useRef } from 'react';
+// import { ImagePlus, X } from 'lucide-react';
+// import { fileToResizedDataUrl, IMAGE_ACCEPT } from '../../utils/image';
+// import { showAlert } from '../ui/dialog';
 
 const AI_LOADER_STEPS = [
   'Analyzing project requirements...',
@@ -41,9 +43,10 @@ export function SearchView({ search, boards, user, onRequireAuth, onNavigate }) 
     setSearchMode,
     aiQuery,
     setAiQuery,
-    aiImage,
-    setAiImage,
-    aiSearchedImage,
+    // CLIENT PAUSED: image search
+    // aiImage,
+    // setAiImage,
+    // aiSearchedImage,
     aiLoaderStep,
     searchResults,
     totalResults,
@@ -62,22 +65,9 @@ export function SearchView({ search, boards, user, onRequireAuth, onNavigate }) 
     handleAiSuggestion
   } = search;
 
-  const photoInput = useRef(null);
-
-  const pickPhoto = async (event) => {
-    const file = event.target.files?.[0];
-    event.target.value = '';
-    if (!file) return;
-    if (!user) {
-      onRequireAuth('login');
-      return;
-    }
-    try {
-      setAiImage(await fileToResizedDataUrl(file));
-    } catch (err) {
-      showAlert(err.message, { tone: 'error' });
-    }
-  };
+  // CLIENT PAUSED: image search — restore pickPhoto + photoInput with the photo UI
+  // const photoInput = useRef(null);
+  // const pickPhoto = async (event) => { ... };
 
   // Hard-cap: basic plan users see at most 5 AI leads / 10 standard results, whatever the response holds.
   const isCapped = user?.subscriptionPlan === 'basic' || !user;
@@ -99,7 +89,8 @@ export function SearchView({ search, boards, user, onRequireAuth, onNavigate }) 
       pushChip('Colours', aiExtracted.colors.join(', '));
     }
     pushChip('Location', aiExtracted.city || aiExtracted.location);
-    if (aiExtracted.distanceKm) pushChip('Distance', `${aiExtracted.distanceKm} km`);
+    // CLIENT PAUSED: distance / geolocation chip
+    // if (aiExtracted.distanceKm) pushChip('Distance', `${aiExtracted.distanceKm} km`);
     pushChip('Quantity', aiExtracted.quantity);
     pushChip('Project size', aiExtracted.projectSize);
     if (aiExtracted.budgetMin != null || aiExtracted.budgetMax != null) {
@@ -179,16 +170,12 @@ export function SearchView({ search, boards, user, onRequireAuth, onNavigate }) 
             <form onSubmit={handleAiSearch} className="glass-card animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '16px', padding: '20px', textAlign: 'left' }}>
               <div>
                 <label className="form-label">
-                  {aiImage
-                    ? 'Add a note about the item (optional): city, material, quantity...'
-                    : 'Explain your project requirements in detail (use case, material, design, city, distance)'}
+                  Explain your project requirements in detail (use case, material, design, city)
                 </label>
                 <textarea
                   className="form-control"
                   rows={3}
-                  placeholder={aiImage
-                    ? 'e.g. "Need 20 of these for a cafe in Pune, in teak."'
-                    : 'e.g. "Find handcrafted wooden furniture manufacturers near Bangalore for a hospitality project"'}
+                  placeholder='e.g. "Find handcrafted wooden furniture manufacturers near Bangalore for a hospitality project"'
                   value={aiQuery}
                   onChange={(e) => setAiQuery(e.target.value)}
                   onKeyDown={(e) => {
@@ -197,43 +184,30 @@ export function SearchView({ search, boards, user, onRequireAuth, onNavigate }) 
                       e.currentTarget.form?.requestSubmit();
                     }
                   }}
-                  required={!aiImage}
+                  required
                   style={{ resize: 'none' }}
                 />
               </div>
 
+              {/* CLIENT PAUSED: image search — restore when client asks
               <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
                 {aiImage ? (
                   <div style={{ position: 'relative', width: '72px', height: '72px', borderRadius: '8px', overflow: 'hidden', border: '1px solid var(--border-color)' }}>
                     <img src={aiImage} alt="Item to match" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                    <button
-                      type="button"
-                      className="btn btn-secondary"
-                      style={{ position: 'absolute', top: 4, right: 4, padding: '2px 5px' }}
-                      onClick={() => setAiImage('')}
-                      disabled={isAiSearching}
-                      aria-label="Remove photo"
-                    >
+                    <button type="button" className="btn btn-secondary" style={{ position: 'absolute', top: 4, right: 4, padding: '2px 5px' }} onClick={() => setAiImage('')} disabled={isAiSearching} aria-label="Remove photo">
                       <X size={12} />
                     </button>
                   </div>
                 ) : null}
-                <button
-                  type="button"
-                  className="btn btn-secondary"
-                  style={{ padding: '8px 14px', fontSize: '13px', gap: '6px' }}
-                  onClick={() => (user ? photoInput.current?.click() : onRequireAuth('login'))}
-                  disabled={isAiSearching}
-                >
+                <button type="button" className="btn btn-secondary" style={{ padding: '8px 14px', fontSize: '13px', gap: '6px' }} onClick={() => (user ? photoInput.current?.click() : onRequireAuth('login'))} disabled={isAiSearching}>
                   <ImagePlus size={16} /> {aiImage ? 'Change photo' : 'Search by photo'}
                 </button>
                 <span style={{ fontSize: '12px', color: 'var(--color-text-secondary)', flex: 1, minWidth: '180px' }}>
-                  {aiImage
-                    ? "We'll match vendors who make or supply similar products."
-                    : 'Have a picture of the item you want? Upload it to find vendors who make it.'}
+                  {aiImage ? "We'll match vendors who make or supply similar products." : 'Have a picture of the item you want? Upload it to find vendors who make it.'}
                 </span>
                 <input ref={photoInput} type="file" accept={IMAGE_ACCEPT} onChange={pickPhoto} style={{ display: 'none' }} />
               </div>
+              */}
 
               <button
                 type="submit"
@@ -247,7 +221,7 @@ export function SearchView({ search, boards, user, onRequireAuth, onNavigate }) 
                     Finding vendors…
                   </>
                 ) : (
-                  <><Sparkles size={18} /> {aiImage ? 'Find Vendors for This Item' : 'Match Me with Artisans'}</>
+                  <><Sparkles size={18} /> Match Me with Artisans</>
                 )}
               </button>
             </form>
@@ -293,19 +267,19 @@ export function SearchView({ search, boards, user, onRequireAuth, onNavigate }) 
 
             {searchMode === 'ai' && (aiSummary || extractChips.length > 0) && (
               <div className="glass-card" style={{ marginBottom: '18px', padding: '16px 18px', display: 'flex', gap: '16px', alignItems: 'flex-start' }}>
+                {/* CLIENT PAUSED: image search result thumbnail
                 {aiSearchedImage && (
-                  <img
-                    src={aiSearchedImage}
-                    alt="Your uploaded item"
-                    style={{ width: '88px', height: '88px', objectFit: 'cover', borderRadius: '8px', flexShrink: 0, border: '1px solid var(--border-color)' }}
-                  />
+                  <img src={aiSearchedImage} alt="Your uploaded item" style={{ width: '88px', height: '88px', objectFit: 'cover', borderRadius: '8px', flexShrink: 0, border: '1px solid var(--border-color)' }} />
                 )}
+                */}
                 <div style={{ flex: 1, minWidth: 0 }}>
+                  {/* CLIENT PAUSED: photo vision description
                   {aiExtracted?.visualDescription && (
                     <p style={{ fontSize: '13px', marginBottom: '8px' }}>
                       <strong>Detected item:</strong> {aiExtracted.visualDescription}
                     </p>
                   )}
+                  */}
                   {aiSummary && (
                     <p style={{ fontSize: '14px', color: 'var(--color-text-secondary)', marginBottom: extractChips.length ? '12px' : 0 }}>
                       {aiSummary}

@@ -11,12 +11,25 @@ import {
   ClipboardList
 } from 'lucide-react';
 import { useTheme } from '../../hooks/useTheme';
+import { assetUrl } from '../../api/client';
 
 function getInitials(name = '') {
   const parts = name.trim().split(/\s+/).filter(Boolean);
   if (parts.length === 0) return 'U';
   if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
   return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
+}
+
+function Avatar({ user }) {
+  const src = assetUrl(user?.profilePictureUrl);
+  if (src) {
+    return (
+      <span className="user-menu-avatar">
+        <img src={src} alt="" />
+      </span>
+    );
+  }
+  return <span className="user-menu-avatar">{getInitials(user?.name)}</span>;
 }
 
 function roleLabel(user) {
@@ -64,7 +77,7 @@ export function UserMenu({ user, currentView, onNavigate, onOpenBoards, onLogout
         aria-haspopup="menu"
         aria-expanded={open}
       >
-        <span className="user-menu-avatar">{getInitials(user.name)}</span>
+        <Avatar user={user} />
         <span className="user-menu-meta">
           <span className="user-menu-name">{user.name}</span>
           <span className="user-menu-plan">{roleLabel(user)}</span>
@@ -83,7 +96,7 @@ export function UserMenu({ user, currentView, onNavigate, onOpenBoards, onLogout
                 : 'dashboard'
             ))}
           >
-            <span className="user-menu-avatar">{getInitials(user.name)}</span>
+            <Avatar user={user} />
             <span className="user-menu-meta">
               <span className="user-menu-name">{user.name}</span>
               <span className="user-menu-plan">{roleLabel(user)}</span>

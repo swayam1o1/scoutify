@@ -41,6 +41,7 @@ const UserSchema = new mongoose.Schema({
   dateOfBirth: { type: Date },
   gender: { type: String }, // female | male | non_binary | prefer_not | other
   profilePictureUrl: { type: String },
+  profilePictureKey: { type: String },
   clientProfile: {
     type: { type: String }, // student, professional, architect, designer, firm, etc.
     companyName: { type: String },
