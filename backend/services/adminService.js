@@ -9,6 +9,7 @@ const { toList, buildSearchText, pickListingSnapshot, diffListing } = require('.
 const { sanitizeArtisanForUser, sanitizeCatalogue } = require('../utils/sanitizeArtisan');
 const { deleteImage } = require('./storageService');
 const { refreshListingEmbedding } = require('./listingEmbeddingService');
+const { normalizeVendorType, assessVendorListing } = require('../utils/vendorVerification');
 const {
   CONTACT_STATUSES,
   ADMIN_ASSIGNABLE_STATUSES,
@@ -157,7 +158,16 @@ async function listVendors({ status, search, limit: rawLimit }) {
 
   const vendors = docs.map(doc => {
     const review = reviewSummary(doc);
-    return { ...doc.toJSON(), changeCount: review.changes.length, newCatalogueCount: review.newCatalogueCount, isFirstSubmission: review.isFirstSubmission };
+    const json = doc.toJSON();
+    const verification = assessVendorListing(json);
+    return {
+      ...json,
+      vendorType: verification.vendorType,
+      changeCount: review.changes.length,
+      newCatalogueCount: review.newCatalogueCount,
+      isFirstSubmission: review.isFirstSubmission,
+      verification
+    };
   });
 
   return { vendors, count: vendors.length, total: await Artisan.countDocuments(query) };
@@ -191,10 +201,13 @@ async function getVendorDetail(id) {
     ...item,
     isNew: since ? new Date(item.createdAt) > new Date(since) : !vendor.approvedSnapshot
   }));
+  const vendorJson = { ...vendor.toJSON(), catalogue };
+  const verification = assessVendorListing(vendorJson);
 
   return {
-    vendor: { ...vendor.toJSON(), catalogue },
+    vendor: { ...vendorJson, vendorType: verification.vendorType },
     owner,
+    verification,
     review: {
       ...review,
       lastApprovedAt: vendor.lastApprovedAt || null,
@@ -212,6 +225,12 @@ async function updateVendorStatus(actor, id, status) {
   if (!vendor) throw new HttpError(404, 'Vendor not found.');
 
   const previousStatus = vendor.contactStatus;
+  const verification = assessVendorListing(vendor);
+  let warning = null;
+  if (status === 'approved' && !verification.readyForReview) {
+    warning = `Approved with incomplete ${verification.verificationTier} checks: ${verification.missingRequired.join(', ')}.`;
+  }
+
   vendor.contactStatus = status;
   if (status === 'approved') {
     vendor.approvedSnapshot = pickListingSnapshot(vendor);
@@ -223,10 +242,17 @@ async function updateVendorStatus(actor, id, status) {
   await writeAudit(actor, 'vendor.status_changed', 'Artisan', vendor._id, {
     companyName: vendor.companyName,
     previousStatus,
-    status
+    status,
+    vendorType: verification.vendorType,
+    approvedIncomplete: Boolean(warning)
   });
 
-  return { message: `Vendor marked ${status}.`, vendor: sanitizeArtisanForUser(vendor) };
+  return {
+    message: warning || `Vendor marked ${status}.`,
+    warning,
+    verification,
+    vendor: sanitizeArtisanForUser(vendor)
+  };
 }
 
 async function createVendor(actor, body) {
@@ -240,6 +266,7 @@ async function createVendor(actor, body) {
 
   const payload = {
     companyName: companyName.trim(),
+    vendorType: normalizeVendorType(body.vendorType),
     phoneNumber: body.phoneNumber,
     email: body.email,
     instagram: body.instagram,

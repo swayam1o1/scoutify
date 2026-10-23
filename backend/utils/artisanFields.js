@@ -41,6 +41,7 @@ function buildEmbeddingText(listing = {}) {
 // Vendor-editable listing fields, in the order admins review them.
 const LISTING_FIELDS = [
   { key: 'companyName', label: 'Company name' },
+  { key: 'vendorType', label: 'Vendor type' },
   { key: 'phoneNumber', label: 'Phone number' },
   { key: 'email', label: 'Listing email' },
   { key: 'instagram', label: 'Instagram' },

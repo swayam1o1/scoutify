@@ -6,6 +6,36 @@ const { assertReauth, clearReauthChallenge, companyNameChanged } = require('./re
 const { deleteUserAccount } = require('./accountDeletionService');
 const { FIRM_TYPES, generateOTP, publicUser } = require('./authService');
 const { isEmailTaken, isPhoneTaken } = require('./accountLookupService');
+const { parseImageDataUrl } = require('../utils/imageUpload');
+const { saveImage, deleteImage } = require('./storageService');
+
+async function applyProfilePicture(user, { profilePicture, profilePictureUrl }) {
+  if (profilePicture) {
+    const image = parseImageDataUrl(profilePicture);
+    const stored = await saveImage(image, `profiles/${user._id}`);
+    if (user.profilePictureKey) await deleteImage(user.profilePictureKey);
+    user.profilePictureUrl = stored.url;
+    user.profilePictureKey = stored.key;
+    return;
+  }
+
+  if (profilePictureUrl === undefined) return;
+
+  const url = String(profilePictureUrl || '').trim();
+  if (!url) {
+    if (user.profilePictureKey) await deleteImage(user.profilePictureKey);
+    user.profilePictureUrl = undefined;
+    user.profilePictureKey = undefined;
+    return;
+  }
+
+  // Pasted public link — clear any previously uploaded file key.
+  if (user.profilePictureKey && url !== user.profilePictureUrl) {
+    await deleteImage(user.profilePictureKey);
+    user.profilePictureKey = undefined;
+  }
+  user.profilePictureUrl = url;
+}
 
 // assertReauth failures were answered with the failure object itself, so the
 // body keeps its `status` field alongside message + code.
@@ -46,6 +76,7 @@ async function saveOnboarding(user, body) {
     dateOfBirth,
     gender,
     profilePictureUrl,
+    profilePicture,
     accountType,
     companyName,
     plannedUse,
@@ -88,9 +119,8 @@ async function saveOnboarding(user, body) {
     user.gender = String(gender || '').trim() || undefined;
   }
 
-  if (profilePictureUrl !== undefined) {
-    const url = String(profilePictureUrl || '').trim();
-    user.profilePictureUrl = url || undefined;
+  if (profilePicture !== undefined || profilePictureUrl !== undefined) {
+    await applyProfilePicture(user, { profilePicture, profilePictureUrl });
   }
 
   const interestList = Array.isArray(interests)

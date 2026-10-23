@@ -6,7 +6,7 @@ import { showConfirm } from '../ui/dialog';
 
 const EMPTY_FORM = { title: '', category: '', material: '', description: '' };
 
-export function CatalogueManager({ token, hasListing }) {
+export function CatalogueManager({ token, hasListing, onCatalogueCountChange }) {
   const [catalogue, setCatalogue] = useState([]);
   const [maxItems, setMaxItems] = useState(30);
   const [form, setForm] = useState(EMPTY_FORM);
@@ -14,6 +14,10 @@ export function CatalogueManager({ token, hasListing }) {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState(null);
   const fileInput = useRef(null);
+
+  useEffect(() => {
+    onCatalogueCountChange?.(catalogue.length);
+  }, [catalogue.length, onCatalogueCountChange]);
 
   useEffect(() => {
     if (!token) return;

@@ -11,6 +11,11 @@ const CLIENT_TYPE_OPTIONS = [
   { value: 'private_client', label: 'Private Client' }
 ];
 
+const VENDOR_TYPE_OPTIONS = [
+  { value: 'individual', label: 'Individual / Freelancer (stricter review)' },
+  { value: 'firm', label: 'Firm / Company / Studio (lighter review)' }
+];
+
 const PLANNED_USE_OPTIONS = [
   { value: 'source_vendors', label: 'Source Vendors for active projects' },
   { value: 'hiring', label: 'Direct hiring for short-term projects' },
@@ -77,6 +82,8 @@ export function AuthModal({ auth }) {
     setArtisanCity,
     artisanSpecialization,
     setArtisanSpecialization,
+    artisanVendorType,
+    setArtisanVendorType,
     forgotStage,
     forgotEmail,
     setForgotEmail,
@@ -425,8 +432,22 @@ export function AuthModal({ auth }) {
                       required
                     />
                   </div>
+                  <DarkSelect
+                    label="Vendor type"
+                    value={artisanVendorType}
+                    onChange={setArtisanVendorType}
+                    options={VENDOR_TYPE_OPTIONS}
+                    required
+                  />
+                  <p style={{ fontSize: '12px', color: 'var(--color-text-secondary)', margin: '-6px 0 12px' }}>
+                    {artisanVendorType === 'firm'
+                      ? 'Firms need company name, city, phone, and one specialization for a lighter admin review.'
+                      : 'Individuals need more proof later (description + portfolio/products/catalogue) before review.'}
+                  </p>
                   <div className="form-group">
-                    <label className="form-label required">Company Name</label>
+                    <label className="form-label required">
+                      {artisanVendorType === 'firm' ? 'Company / Firm Name' : 'Studio or Trade Name'}
+                    </label>
                     <input
                       type="text"
                       className="form-control"

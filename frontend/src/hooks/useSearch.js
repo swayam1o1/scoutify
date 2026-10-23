@@ -99,17 +99,13 @@ export function useSearch({ token, user, onRequireAuth, demoLogin }) {
     await executeAiRequest('/search/ai', { query: brief }, { searchedImage: null });
   };
 
-  const runImageSearch = async (image, noteText) => {
-    if (!image) return;
-
-    if (!user) {
-      onRequireAuth?.('login');
-      return;
-    }
-
-    const note = String(noteText || '').trim();
-    await executeAiRequest('/search/ai/image', { image, note }, { searchedImage: image });
-  };
+  // CLIENT PAUSED: image search — restore when UI photo upload is re-enabled
+  // const runImageSearch = async (image, noteText) => {
+  //   if (!image) return;
+  //   if (!user) { onRequireAuth?.('login'); return; }
+  //   const note = String(noteText || '').trim();
+  //   await executeAiRequest('/search/ai/image', { image, note }, { searchedImage: image });
+  // };
 
   const executeAiRequest = async (path, body, extraPatch) => {
     const requestId = startSearchRequest('ai');
@@ -179,13 +175,15 @@ export function useSearch({ token, user, onRequireAuth, demoLogin }) {
   const handleAiSearch = async (e) => {
     if (e) e.preventDefault();
     if (isAiSearching) return;
-    if (aiImage) await runImageSearch(aiImage, aiQuery);
-    else await runAiSearch(aiQuery);
+    // CLIENT PAUSED: image search
+    // if (aiImage) await runImageSearch(aiImage, aiQuery);
+    // else await runAiSearch(aiQuery);
+    await runAiSearch(aiQuery);
   };
 
   const handleAiSuggestion = (suggestion) => {
     setSearchMode('ai');
-    setAiImage('');
+    // setAiImage('');
     runAiSearch(suggestion);
   };
 

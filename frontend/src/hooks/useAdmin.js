@@ -4,6 +4,7 @@ import { showConfirm } from '../components/ui/dialog';
 
 const EMPTY_VENDOR = {
   companyName: '',
+  vendorType: 'individual',
   city: '',
   phoneNumber: '',
   email: '',
@@ -132,7 +133,22 @@ export function useAdmin({ token, user, applySession }) {
 
   const closeVendorDetail = () => setVendorDetail(null);
 
-  const setVendorStatus = async (vendorId, status) => {
+  const setVendorStatus = async (vendorId, status, vendorHint) => {
+    if (status === 'approved') {
+      const verification = vendorHint?.verification
+        || (vendorDetail?.vendor?._id === vendorId ? vendorDetail?.verification : null);
+      if (verification && !verification.readyForReview && verification.missingRequired?.length) {
+        const confirmed = await showConfirm(
+          `This ${verification.vendorType === 'firm' ? 'firm' : 'individual'} listing is missing required fields: ${verification.missingRequired.join(', ')}. Approve anyway?`,
+          {
+            title: 'Approve incomplete listing?',
+            confirmLabel: 'Approve anyway',
+            danger: true
+          }
+        );
+        if (!confirmed) return false;
+      }
+    }
     const done = await runAction(`/vendors/${vendorId}/status`, { method: 'PATCH', body: { status } }, 'Vendor updated.');
     if (done && vendorDetail?.vendor?._id === vendorId) await openVendorDetail(vendorId);
     return done;

@@ -11,12 +11,25 @@ import {
   ClipboardList
 } from 'lucide-react';
 import { useTheme } from '../../hooks/useTheme';
+import { assetUrl } from '../../api/client';
 
 function getInitials(name = '') {
   const parts = name.trim().split(/\s+/).filter(Boolean);
   if (parts.length === 0) return 'U';
   if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
   return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
+}
+
+function Avatar({ user }) {
+  const src = assetUrl(user?.profilePictureUrl);
+  if (src) {
+    return (
+      <span className="user-menu-avatar">
+        <img src={src} alt="" />
+      </span>
+    );
+  }
+  return <span className="user-menu-avatar">{getInitials(user?.name)}</span>;
 }
 
 function roleLabel(user) {
@@ -28,6 +41,7 @@ function roleLabel(user) {
 export function UserMenu({ user, currentView, onNavigate, onOpenBoards, onLogout }) {
   const [open, setOpen] = useState(false);
   const menuRef = useRef(null);
+  const sectionActive = ['dashboard', 'boards', 'board-details', 'onboarding', 'admin'].includes(currentView);
   const { theme, setTheme } = useTheme();
 
   useEffect(() => {
@@ -59,12 +73,12 @@ export function UserMenu({ user, currentView, onNavigate, onOpenBoards, onLogout
     <div className="user-menu" ref={menuRef}>
       <button
         type="button"
-        className={`user-menu-trigger ${open ? 'is-open' : ''}`}
+        className={`user-menu-trigger ${open ? 'is-open' : ''} ${sectionActive ? 'is-active-section' : ''}`}
         onClick={() => setOpen(prev => !prev)}
         aria-haspopup="menu"
         aria-expanded={open}
       >
-        <span className="user-menu-avatar">{getInitials(user.name)}</span>
+        <Avatar user={user} />
         <span className="user-menu-meta">
           <span className="user-menu-name">{user.name}</span>
           <span className="user-menu-plan">{roleLabel(user)}</span>
@@ -83,7 +97,7 @@ export function UserMenu({ user, currentView, onNavigate, onOpenBoards, onLogout
                 : 'dashboard'
             ))}
           >
-            <span className="user-menu-avatar">{getInitials(user.name)}</span>
+            <Avatar user={user} />
             <span className="user-menu-meta">
               <span className="user-menu-name">{user.name}</span>
               <span className="user-menu-plan">{roleLabel(user)}</span>
@@ -149,7 +163,7 @@ export function UserMenu({ user, currentView, onNavigate, onOpenBoards, onLogout
           {user.role !== 'admin' && (
             <button
               type="button"
-              className="user-menu-item"
+              className={`user-menu-item ${currentView === 'pricing' ? 'is-active' : ''}`}
               onClick={() => go(() => onNavigate('pricing'))}
             >
               <Settings size={16} />

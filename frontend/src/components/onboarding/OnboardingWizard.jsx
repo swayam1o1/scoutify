@@ -1,6 +1,9 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
+import { ImagePlus, X } from 'lucide-react';
 import { useCategories } from '../../hooks/useCategories';
 import { DarkSelect } from '../ui/DarkSelect.jsx';
+import { assetUrl } from '../../api/client';
+import { fileToResizedDataUrl, IMAGE_ACCEPT } from '../../utils/image';
 
 const TOTAL_STEPS = 6;
 
@@ -64,7 +67,9 @@ function buildInitialForm(user) {
     serviceArea: cp.serviceArea || '',
     geoLat: cp.geoLat ?? null,
     geoLng: cp.geoLng ?? null,
-    geoAllowed: !!cp.geoAllowed
+    geoAllowed: !!cp.geoAllowed,
+    // Local data-URL waiting to be uploaded on the next save; not persisted.
+    profilePictureData: ''
   };
 }
 
@@ -77,8 +82,30 @@ export function OnboardingWizard({ user, token, onComplete, onDraftSaved, onCanc
   const [info, setInfo] = useState('');
   const [geoStatus, setGeoStatus] = useState('');
   const [form, setForm] = useState(() => buildInitialForm(user));
+  const [pictureError, setPictureError] = useState('');
+  const pictureInput = useRef(null);
 
   const setField = (key) => (e) => setForm(prev => ({ ...prev, [key]: e.target.value }));
+
+  const previewPicture = form.profilePictureData || form.profilePictureUrl;
+
+  const pickProfilePicture = async (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    try {
+      const dataUrl = await fileToResizedDataUrl(file, { maxSize: 512, quality: 0.88 });
+      setForm(prev => ({ ...prev, profilePictureData: dataUrl, profilePictureUrl: prev.profilePictureUrl }));
+      setPictureError('');
+    } catch (err) {
+      setPictureError(err.message || 'Could not read this image.');
+    }
+  };
+
+  const clearProfilePicture = () => {
+    setForm(prev => ({ ...prev, profilePictureData: '', profilePictureUrl: '' }));
+    setPictureError('');
+  };
 
   const showCompany = FIRM_TYPES.has(form.accountType);
   const progress = useMemo(() => ((step + 1) / TOTAL_STEPS) * 100, [step]);
@@ -93,48 +120,56 @@ export function OnboardingWizard({ user, token, onComplete, onDraftSaved, onCanc
     });
   };
 
-  const requestGeo = () => {
-    setGeoStatus('');
-    if (!navigator.geolocation) {
-      setGeoStatus('Geolocation is not supported in this browser.');
-      return;
-    }
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        setForm(prev => ({
-          ...prev,
-          geoAllowed: true,
-          geoLat: pos.coords.latitude,
-          geoLng: pos.coords.longitude
-        }));
-        setGeoStatus('Location permission granted.');
-      },
-      () => {
-        setForm(prev => ({ ...prev, geoAllowed: false, geoLat: null, geoLng: null }));
-        setGeoStatus('Location permission denied or unavailable. You can still continue.');
-      },
-      { enableHighAccuracy: false, timeout: 10000 }
-    );
-  };
+  // CLIENT PAUSED: geolocation — restore with the onboarding button below
+  // const requestGeo = () => {
+  //   setGeoStatus('');
+  //   if (!navigator.geolocation) {
+  //     setGeoStatus('Geolocation is not supported in this browser.');
+  //     return;
+  //   }
+  //   navigator.geolocation.getCurrentPosition(
+  //     (pos) => {
+  //       setForm(prev => ({
+  //         ...prev,
+  //         geoAllowed: true,
+  //         geoLat: pos.coords.latitude,
+  //         geoLng: pos.coords.longitude
+  //       }));
+  //       setGeoStatus('Location permission granted.');
+  //     },
+  //     () => {
+  //       setForm(prev => ({ ...prev, geoAllowed: false, geoLat: null, geoLng: null }));
+  //       setGeoStatus('Location permission denied or unavailable. You can still continue.');
+  //     },
+  //     { enableHighAccuracy: false, timeout: 10000 }
+  //   );
+  // };
 
-  const payloadFromForm = (complete, nextStep) => ({
-    name: form.name.trim(),
-    dateOfBirth: form.dateOfBirth || '',
-    gender: form.gender || '',
-    profilePictureUrl: form.profilePictureUrl || '',
-    accountType: form.accountType,
-    companyName: showCompany ? form.companyName.trim() : '',
-    plannedUse: form.plannedUse,
-    usageType: form.usageType,
-    interests: form.interests,
-    preferredLocation: form.preferredLocation,
-    serviceArea: form.serviceArea,
-    geoLat: form.geoLat,
-    geoLng: form.geoLng,
-    geoAllowed: form.geoAllowed,
-    onboardingStep: nextStep,
-    complete
-  });
+  const payloadFromForm = (complete, nextStep) => {
+    const body = {
+      name: form.name.trim(),
+      dateOfBirth: form.dateOfBirth || '',
+      gender: form.gender || '',
+      accountType: form.accountType,
+      companyName: showCompany ? form.companyName.trim() : '',
+      plannedUse: form.plannedUse,
+      usageType: form.usageType,
+      interests: form.interests,
+      preferredLocation: form.preferredLocation,
+      serviceArea: form.serviceArea,
+      geoLat: form.geoLat,
+      geoLng: form.geoLng,
+      geoAllowed: form.geoAllowed,
+      onboardingStep: nextStep,
+      complete
+    };
+    if (form.profilePictureData) {
+      body.profilePicture = form.profilePictureData;
+    } else {
+      body.profilePictureUrl = form.profilePictureUrl || '';
+    }
+    return body;
+  };
 
   const save = async ({ complete, nextStep = step }) => {
     setBusy(true);
@@ -150,6 +185,13 @@ export function OnboardingWizard({ user, token, onComplete, onDraftSaved, onCanc
       if (!res.ok) {
         setError(data.message || 'Could not save onboarding.');
         return null;
+      }
+      if (data.user?.profilePictureUrl !== undefined) {
+        setForm(prev => ({
+          ...prev,
+          profilePictureUrl: data.user.profilePictureUrl || '',
+          profilePictureData: ''
+        }));
       }
       if (complete) {
         onComplete?.(data.user);
@@ -289,17 +331,82 @@ export function OnboardingWizard({ user, token, onComplete, onDraftSaved, onCanc
               options={GENDER_OPTIONS}
             />
             <div className="form-group">
-              <label className="form-label">Profile picture URL (optional)</label>
-              <input
-                type="url"
-                className="form-control"
-                placeholder="https://..."
-                value={form.profilePictureUrl}
-                onChange={setField('profilePictureUrl')}
-              />
-              <span style={{ fontSize: '11px', color: 'var(--color-text-secondary)' }}>
-                Image upload comes later — paste a public image link, or skip.
-              </span>
+              <label className="form-label">Profile picture (optional)</label>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '14px', flexWrap: 'wrap' }}>
+                <div
+                  style={{
+                    width: 72,
+                    height: 72,
+                    borderRadius: '50%',
+                    overflow: 'hidden',
+                    border: '1px solid var(--border-color)',
+                    background: 'var(--surface-3)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    flexShrink: 0
+                  }}
+                >
+                  {previewPicture ? (
+                    <img
+                      src={form.profilePictureData || assetUrl(form.profilePictureUrl)}
+                      alt="Profile preview"
+                      style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                    />
+                  ) : (
+                    <span style={{ fontSize: 12, color: 'var(--color-text-secondary)' }}>No photo</span>
+                  )}
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', minWidth: 180 }}>
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    style={{ padding: '8px 14px', fontSize: '13px', gap: '6px', width: 'fit-content' }}
+                    onClick={() => pictureInput.current?.click()}
+                    disabled={busy}
+                  >
+                    <ImagePlus size={16} /> {previewPicture ? 'Change photo' : 'Upload photo'}
+                  </button>
+                  {previewPicture && (
+                    <button
+                      type="button"
+                      className="btn btn-outline"
+                      style={{ padding: '6px 12px', fontSize: '12px', gap: '4px', width: 'fit-content' }}
+                      onClick={clearProfilePicture}
+                      disabled={busy}
+                    >
+                      <X size={14} /> Remove
+                    </button>
+                  )}
+                  <input
+                    ref={pictureInput}
+                    type="file"
+                    accept={IMAGE_ACCEPT}
+                    onChange={pickProfilePicture}
+                    style={{ display: 'none' }}
+                  />
+                </div>
+              </div>
+              {pictureError && (
+                <p style={{ fontSize: '12px', color: 'var(--tone-danger-text)', marginTop: '8px' }}>{pictureError}</p>
+              )}
+              <div style={{ marginTop: '12px' }}>
+                <label className="form-label">Or paste an image URL</label>
+                <input
+                  type="url"
+                  className="form-control"
+                  placeholder="https://..."
+                  value={form.profilePictureData ? '' : form.profilePictureUrl}
+                  onChange={(e) => {
+                    setForm(prev => ({ ...prev, profilePictureUrl: e.target.value, profilePictureData: '' }));
+                    setPictureError('');
+                  }}
+                  disabled={Boolean(form.profilePictureData)}
+                />
+                <span style={{ fontSize: '11px', color: 'var(--color-text-secondary)' }}>
+                  JPG, PNG or WEBP up to 15 MB. Photo is saved when you continue or save progress.
+                </span>
+              </div>
             </div>
           </div>
         )}
@@ -387,6 +494,7 @@ export function OnboardingWizard({ user, token, onComplete, onDraftSaved, onCanc
                 onChange={setField('serviceArea')}
               />
             </div>
+            {/* CLIENT PAUSED: geolocation
             <button type="button" className="btn btn-outline" onClick={requestGeo} style={{ marginBottom: '8px' }}>
               Allow geolocation (optional)
             </button>
@@ -398,6 +506,7 @@ export function OnboardingWizard({ user, token, onComplete, onDraftSaved, onCanc
                 Saved coordinates: {Number(form.geoLat).toFixed(4)}, {Number(form.geoLng).toFixed(4)}
               </p>
             )}
+            */}
           </div>
         )}
 

@@ -1,9 +1,17 @@
 import { Plus, Trash } from 'lucide-react';
+import { useMemo } from 'react';
 import { useCategories } from '../../hooks/useCategories';
 import { ReauthFields } from '../auth/ReauthFields.jsx';
 import { CatalogueManager } from './CatalogueManager.jsx';
 import { ClientSearchAlertsPanel } from '../notifications/ClientSearchAlertsPanel.jsx';
+import { DarkSelect } from '../ui/DarkSelect.jsx';
 import { vendorWhatsappUrl } from '../../utils/whatsapp';
+import { assessVendorListing } from '../../utils/vendorVerification';
+
+const VENDOR_TYPE_OPTIONS = [
+  { value: 'individual', label: 'Individual / Freelancer (stricter review)' },
+  { value: 'firm', label: 'Firm / Company / Studio (lighter review)' }
+];
 
 const FIRM_TYPES = new Set(['architectural_firm', 'design_firm', 'company', 'firm']);
 
@@ -403,6 +411,39 @@ function CategoryPicker({ label, selected, onChange, placeholder }) {
   );
 }
 
+function VerificationChecklist({ assessment }) {
+  if (!assessment) return null;
+  const tierLabel = assessment.verificationTier === 'light' ? 'Light verification (firm)' : 'Strict verification (individual)';
+  return (
+    <div
+      style={{
+        marginBottom: '16px',
+        padding: '12px 14px',
+        borderRadius: '8px',
+        border: `1px solid ${assessment.readyForReview ? 'var(--tone-success-border)' : 'var(--tone-warning-border)'}`,
+        background: assessment.readyForReview ? 'var(--tone-success-bg)' : 'var(--tone-warning-bg)'
+      }}
+    >
+      <strong style={{ display: 'block', fontSize: '13px', marginBottom: '8px', color: assessment.readyForReview ? 'var(--tone-success-text)' : 'var(--tone-warning-text)' }}>
+        {tierLabel}{assessment.readyForReview ? ' — ready for admin review' : ' — finish required items before save'}
+      </strong>
+      <ul style={{ margin: 0, paddingLeft: '18px', fontSize: '12px', color: 'var(--color-text-secondary)' }}>
+        {assessment.required.map(item => (
+          <li key={item.key} style={{ color: item.ok ? 'var(--tone-success-text)' : 'var(--tone-warning-text)', marginBottom: '3px' }}>
+            {item.ok ? '✓' : '○'} {item.label}
+            {!item.ok && <span style={{ opacity: 0.8 }}> (required)</span>}
+          </li>
+        ))}
+        {assessment.recommended.map(item => (
+          <li key={`rec-${item.key}`} style={{ opacity: item.ok ? 0.85 : 0.7, marginBottom: '3px' }}>
+            {item.ok ? '✓' : '○'} {item.label} <span style={{ opacity: 0.75 }}>(recommended)</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 function ArtisanListingForm({ user, auth }) {
   const {
     profileForm,
@@ -414,30 +455,49 @@ function ArtisanListingForm({ user, auth }) {
     reauthForm,
     setReauthForm,
     requestReauthEmailCode,
-    reauthBusy
+    reauthBusy,
+    catalogueCount
   } = auth;
 
   const setField = (field) => (event) => setProfileForm({ ...profileForm, [field]: event.target.value });
   const companyChanged =
     String(profileForm.companyName || '').trim().toLowerCase() !==
     String(user?.artisanProfile?.companyName || '').trim().toLowerCase();
+  const isFirm = profileForm.vendorType === 'firm';
+  const assessment = useMemo(
+    () => assessVendorListing({ ...profileForm, catalogueCount }),
+    [profileForm, catalogueCount]
+  );
 
   return (
     <div className="glass-card">
       <h3 style={{ marginBottom: '16px' }}>Public Directory Listing</h3>
 
       <StatusBanner status={artisanListingStatus} />
+      <VerificationChecklist assessment={assessment} />
 
       <form onSubmit={handleArtisanProfileSave}>
+        <DarkSelect
+          label="Vendor type"
+          value={profileForm.vendorType || 'individual'}
+          onChange={vendorType => setProfileForm({ ...profileForm, vendorType })}
+          options={VENDOR_TYPE_OPTIONS}
+        />
+        <p style={{ fontSize: '11px', color: 'var(--color-text-secondary)', margin: '-4px 0 14px' }}>
+          {isFirm
+            ? 'Firms get a lighter review: name, city, phone, and one specialization are required.'
+            : 'Individuals need stricter proof: contact person, description (40+ chars), and portfolio/products/catalogue.'}
+        </p>
+
         <div className="grid-container grid-2">
           <div className="form-group">
-            <label className="form-label">Company Name</label>
+            <label className="form-label">{isFirm ? 'Company / Firm Name' : 'Studio or Trade Name'} *</label>
             <input
               type="text"
               className="form-control"
               value={profileForm.companyName}
               onChange={setField('companyName')}
-              placeholder="Your studio / company name"
+              placeholder={isFirm ? 'Your company / firm name' : 'Your studio or trade name'}
               required
             />
             <span style={{ fontSize: '11px', color: 'var(--color-text-secondary)', display: 'block', marginTop: '6px' }}>
@@ -445,7 +505,7 @@ function ArtisanListingForm({ user, auth }) {
             </span>
           </div>
           <div className="form-group">
-            <label className="form-label">Phone Number</label>
+            <label className="form-label">Phone Number *</label>
             <input type="text" className="form-control" value={profileForm.phoneNumber} readOnly disabled />
             <span style={{ fontSize: '11px', color: 'var(--color-text-secondary)', display: 'block', marginTop: '6px' }}>
               Your login phone. Change it from account security settings.
@@ -485,28 +545,28 @@ function ArtisanListingForm({ user, auth }) {
 
         <div className="grid-container grid-2">
           <div className="form-group">
-            <label className="form-label">Listing City</label>
+            <label className="form-label">Listing City *</label>
             <input type="text" className="form-control" value={profileForm.city} onChange={setField('city')} />
           </div>
           <div className="form-group">
-            <label className="form-label">Service Area</label>
+            <label className="form-label">Service Area{isFirm ? ' (recommended)' : ''}</label>
             <input type="text" className="form-control" placeholder="South Bangalore, whole of Karnataka..." value={profileForm.serviceArea} onChange={setField('serviceArea')} />
           </div>
         </div>
 
         <div className="grid-container grid-2">
           <div className="form-group">
-            <label className="form-label">Person of Contact</label>
+            <label className="form-label">Person of Contact{isFirm ? '' : ' *'}</label>
             <input type="text" className="form-control" value={profileForm.personOfContact} onChange={setField('personOfContact')} />
           </div>
           <div className="form-group">
-            <label className="form-label">Website</label>
+            <label className="form-label">Website{isFirm ? ' (or Instagram)' : ' (recommended)'}</label>
             <input type="url" className="form-control" placeholder="https://studio.com" value={profileForm.website} onChange={setField('website')} />
           </div>
         </div>
 
         <div className="form-group">
-          <label className="form-label">Studio Description</label>
+          <label className="form-label">Studio Description{isFirm ? ' (recommended)' : ' * (min 40 characters)'}</label>
           <textarea
             className="form-control"
             rows={3}
@@ -514,17 +574,22 @@ function ArtisanListingForm({ user, auth }) {
             value={profileForm.description}
             onChange={setField('description')}
           />
+          {!isFirm && (
+            <span style={{ fontSize: '11px', color: String(profileForm.description || '').trim().length >= 40 ? 'var(--tone-success-text)' : 'var(--color-text-secondary)', display: 'block', marginTop: '6px' }}>
+              {String(profileForm.description || '').trim().length}/40 characters
+            </span>
+          )}
         </div>
 
         <CategoryPicker
-          label="Specializations"
+          label="Specializations *"
           selected={profileForm.specialization}
           onChange={specialization => setProfileForm({ ...profileForm, specialization })}
           placeholder="Modular Kitchens, Stonework..."
         />
 
         <div className="form-group">
-          <label className="form-label">Products (comma separated)</label>
+          <label className="form-label">Products (comma separated){isFirm ? '' : ' — counts as proof'}</label>
           <input
             type="text"
             className="form-control"
@@ -549,7 +614,7 @@ function ArtisanListingForm({ user, auth }) {
         </div>
 
         <div className="form-group" style={{ borderTop: '1px solid var(--border-color)', paddingTop: '20px', marginTop: '20px' }}>
-          <label className="form-label">Portfolio Items / Website Links</label>
+          <label className="form-label">Portfolio Items / Website Links{isFirm ? '' : ' — counts as proof'}</label>
           <div style={{ display: 'flex', gap: '10px', marginBottom: '14px' }}>
             <input
               type="url"
@@ -599,8 +664,14 @@ function ArtisanListingForm({ user, auth }) {
           </div>
         </div>
 
-        <button type="submit" className="btn btn-primary" style={{ width: '100%', marginTop: '20px' }}>
-          Save Listing Details
+        <button
+          type="submit"
+          className="btn btn-primary"
+          style={{ width: '100%', marginTop: '20px' }}
+          disabled={!assessment.readyForReview}
+          title={assessment.readyForReview ? undefined : `Still needed: ${assessment.missingRequired.join(', ')}`}
+        >
+          {assessment.readyForReview ? 'Save Listing Details' : 'Complete required fields to save'}
         </button>
       </form>
     </div>
@@ -905,7 +976,11 @@ export function DashboardView({ user, auth, boards, onNavigate, notifications })
           <div style={{ display: 'flex', flexDirection: 'column', gap: '24px', minWidth: 0 }}>
             {notifications && <ClientSearchAlertsPanel notifications={notifications} />}
             <ArtisanListingForm user={user} auth={auth} />
-            <CatalogueManager token={auth.token} hasListing={Boolean(auth.artisanListingStatus)} />
+            <CatalogueManager
+              token={auth.token}
+              hasListing={Boolean(auth.artisanListingStatus)}
+              onCatalogueCountChange={auth.setCatalogueCount}
+            />
           </div>
         ) : user.role === 'admin' ? (
           <div className="glass-card">

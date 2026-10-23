@@ -402,8 +402,11 @@ async function googleLogin({ role, credential }) {
   return sessionPayload('Google login successful.', user);
 }
 
-// 7. DEMO LOGIN FOR YC HUD
+// 7. DEMO LOGIN FOR YC HUD — off unless ALLOW_DEMO_LOGIN=true (never leave on in client-facing env).
 async function demoLogin({ role }) {
+  if (process.env.ALLOW_DEMO_LOGIN !== 'true') {
+    throw new HttpError(404, 'Demo login is not available.');
+  }
   if (role !== 'client_basic' && role !== 'client_pro' && role !== 'artisan') {
     throw new HttpError(400, 'Invalid demo role.');
   }

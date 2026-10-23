@@ -6,6 +6,7 @@ import { isLiveStatus } from './vendorStatus';
 
 const DETAIL_FIELDS = [
   { key: 'companyName', label: 'Company name' },
+  { key: 'vendorType', label: 'Vendor type' },
   { key: 'phoneNumber', label: 'Phone number' },
   { key: 'email', label: 'Listing email' },
   { key: 'instagram', label: 'Instagram' },
@@ -46,6 +47,10 @@ function Chips({ items, tone }) {
 }
 
 function FieldValue({ field, value }) {
+  if (field.key === 'vendorType') {
+    if (value === 'firm') return <span>Firm (light verification)</span>;
+    return <span>Individual (strict verification)</span>;
+  }
   if (field.list) {
     if (!value?.length) return empty;
     if (field.link) {
@@ -139,7 +144,7 @@ export function VendorDetailModal({ admin }) {
 
   if (!vendorDetail) return null;
 
-  const { vendor, owner, review, loading } = vendorDetail;
+  const { vendor, owner, review, verification, loading } = vendorDetail;
   const changedFields = new Set((review?.changes || []).map(change => change.field));
 
   // Portal to body: ancestors with a transform (e.g. .animate-fade-in) would otherwise anchor the fixed overlay
@@ -159,6 +164,19 @@ export function VendorDetailModal({ admin }) {
               <span className={`badge ${isLiveStatus(vendor.contactStatus) ? '' : 'badge-purple'}`} style={{ fontSize: '10px' }}>
                 {vendor.contactStatus?.toUpperCase()}
               </span>
+              {verification && (
+                <span
+                  className="badge"
+                  style={{
+                    fontSize: '10px',
+                    background: verification.verificationTier === 'light' ? 'var(--tone-success-bg)' : 'var(--tone-warning-bg)',
+                    color: verification.verificationTier === 'light' ? 'var(--tone-success-text)' : 'var(--tone-warning-text)',
+                    border: `1px solid ${verification.verificationTier === 'light' ? 'var(--tone-success-border)' : 'var(--tone-warning-border)'}`
+                  }}
+                >
+                  {verification.vendorType === 'firm' ? 'FIRM · LIGHT' : 'INDIVIDUAL · STRICT'}
+                </span>
+              )}
             </div>
             <p style={{ ...muted, fontSize: '12px', margin: '6px 0 14px' }}>
               {[
@@ -169,6 +187,12 @@ export function VendorDetailModal({ admin }) {
             </p>
 
             <ReviewBanner review={review} status={vendor.contactStatus} />
+
+            {verification && !verification.readyForReview && (
+              <div style={{ marginTop: '10px', padding: '10px 12px', borderRadius: '8px', fontSize: '13px', background: 'var(--tone-danger-bg)', border: '1px solid var(--tone-danger-border)', color: 'var(--tone-danger-text)' }}>
+                Missing required for {verification.verificationTier} review: {verification.missingRequired.join(', ')}. You can still approve, but the listing looks incomplete.
+              </div>
+            )}
 
             {review.changes.length > 0 && (
               <>
@@ -235,7 +259,11 @@ export function VendorDetailModal({ admin }) {
 
             <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '24px', borderTop: '1px solid var(--border-color)', paddingTop: '16px' }}>
               {!isLiveStatus(vendor.contactStatus) && (
-                <button className="btn btn-primary" style={{ padding: '8px 14px', fontSize: '13px' }} onClick={() => setVendorStatus(vendor._id, 'approved')}>
+                <button
+                  className="btn btn-primary"
+                  style={{ padding: '8px 14px', fontSize: '13px' }}
+                  onClick={() => setVendorStatus(vendor._id, 'approved', { verification })}
+                >
                   Approve
                 </button>
               )}

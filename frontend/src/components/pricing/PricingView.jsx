@@ -15,10 +15,10 @@ export function PricingView({ onStartFreeSearch, onUpgradeClick }) {
           <div className="plan-price">₹0 <span>/ lifetime</span></div>
           <div className="plan-desc">For individual clients starting with basic discovery.</div>
           <ul className="plan-features">
-            <li><Check size={16} /> 10 free search views</li>
-            <li><Check size={16} /> Basic location filters</li>
-            <li style={{ color: 'var(--color-text-secondary)', textDecoration: 'line-through' }}><Lock size={12} /> Unlimited results</li>
-            <li style={{ color: 'var(--color-text-secondary)', textDecoration: 'line-through' }}><Lock size={12} /> Priority email support</li>
+            <li><Check size={16} /> Standard search — up to 10 results</li>
+            <li><Check size={16} /> AI Matchmaker — top 5 leads per search</li>
+            <li><Check size={16} /> City / state location filters</li>
+            <li style={{ color: 'var(--color-text-secondary)', textDecoration: 'line-through' }}><Lock size={12} /> Full result lists unlocked</li>
           </ul>
           <button className="btn btn-secondary" onClick={onStartFreeSearch}>
             Start Free Search
@@ -32,10 +32,10 @@ export function PricingView({ onStartFreeSearch, onUpgradeClick }) {
           <div className="plan-price">₹999 <span>/ month</span></div>
           <div className="plan-desc">For architects, designers, and firms with regular sourcing needs.</div>
           <ul className="plan-features">
-            <li><Check size={16} /> Unlimited search lookups</li>
+            <li><Check size={16} /> Unlimited search results</li>
+            <li><Check size={16} /> Full AI Matchmaker lead lists</li>
             <li><Check size={16} /> Full contact details unlocked</li>
             <li><Check size={16} /> OTP & 2FA security features</li>
-            <li><Check size={16} /> Sync multiple locations</li>
           </ul>
           <button className="btn btn-primary" onClick={() => onUpgradeClick('pro')}>
             Upgrade to Pro
